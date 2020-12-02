@@ -1,0 +1,15 @@
+---
+title: "Data Analysis"
+author: "Herdiantri Sufriyana"
+date: "12/2/2020"
+output: html_document
+---
+
+```{r}
+raw=foreign::read.spss('data/data_ai.sav')
+```
+
+```{r}
+as.data.frame(raw)
+```
+
