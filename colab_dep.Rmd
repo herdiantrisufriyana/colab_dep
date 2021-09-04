@@ -1,0 +1,5040 @@
+---
+title: 'Questionnaire-free machine-learning method to predict depressive 
+        symptoms among community-dwelling older adults'
+author:
+  - name: Sri Susanty, MS
+    affiliation:
+    - &nursing School of Nursing, College of Nursing, Taipei Medical 
+      University, 250 Wu-Xing Street, Taipei 11031, Taiwan.
+    - Nursing Study Program, Faculty of Medicine, Universitas Halu Oleo, HEA. 
+      Mokodompit Street, Tridharma Green Campus Anduonohu, Kendari 93132, 
+      Southeast Sulawesi, Indonesia.
+    email: srisusantysahir@gmail.com
+  - name: Herdiantri Sufriyana, MD, M.Sc
+    affiliation:
+    - &gibi Graduate Institute of Biomedical Informatics, College of Medical 
+      Science and Technology, Taipei Medical University, 250 Wu-Xing Street, 
+      Taipei 11031, Taiwan.
+    - Department of Medical Physiology, Faculty of Medicine, Universitas 
+      Nahdlatul Ulama Surabaya, 57 Raya Jemursari Street, Surabaya 60237, 
+      Indonesia.
+    email: herdiantrisufriyana@unusa.ac.id
+  - name: Emily Chia-Yu Su, PhD
+    affiliation:
+    - *gibi
+    - &tmuh Clinical Big Data Research Center, Taipei Medical University 
+      Hospital, 250 Wu-Xing Street, Taipei 11031, Taiwan.
+    - Research Center for Artificial Intelligence in Medicine, Taipei Medical 
+      University, 250 Wu-Xing Street, Taipei 11031, Taiwan.
+  - name: Yeu-Hui Chuang, RN, PhD
+    affiliation:
+    - *nursing
+    - &wanfang Center for Nursing and Healthcare Research in Clinical Practice 
+      Application, Wan Fang Hospital, Taipei Medical University, 111 Section 3, 
+      Xing-Long Road, Taipei 11698, Taiwan.
+output:
+  # html_document
+  pdf_document
+  # word_document:
+  #   reference_docx: styles_colab_dep.docx
+always_allow_html: yes
+---
+
+\tableofcontents
+\newpage
+\listoffigures
+\listoftables
+\newpage
+
+# Methods
+
+```{r Set up reproducible environment, include=FALSE}
+if(!require(renv)) install.packages('renv')
+if(!file.exists('renv')) renv::init(restart=F)
+```
+
+```{r Install and set specific version of Bioconductor, include=FALSE}
+# Install devtools to install specific version of BiocManager.
+if(!require(devtools)) install.packages('devtools')
+
+# Install specific version of BiocManager and Bioconductor.
+devtools::install_version('BiocManager',version='1.30.10',upgrade=F)
+install_steps=T
+if(BiocManager::version()!='3.11'){
+  BiocManager::install(version='3.11',update=T,ask=F)
+  install_steps=c(F,T)
+}
+```
+
+```{r Install and load packages with specific version, include=FALSE}
+for(i in install_steps){
+  if(i) renv::restore()
+  
+  packages=
+    list(
+      bioc_load=
+        c('tidyverse'
+          ,'dslabs'
+          ,'mice'
+          ,'caret'
+          ,'Rborist'
+          ,'gbm'
+          ,'lubridate'
+          ,'pbapply'
+          ,'broom'
+          ,'MLeval'
+          ,'preprocessCore'
+          ,'limma'
+          ,'matrixStats'
+          ,'WGCNA'
+          ,'Rtsne'
+          ,'reticulate'
+          ,'Biobase'
+          ,'igraph'
+          ,'ggnetwork'
+          ,'ggpubr'
+          ,'extrafont')
+      
+      ,herdiantrisufriyana_load=
+        c('divnn'
+          ,'clixo'
+          ,'rsdr')
+      
+      ,devtools_no_load=
+        c('tensorflow|2.0.0'
+          ,'keras|2.3.0.0')
+    )
+  
+  if(i){
+    x=unlist(packages[c('bioc_load','herdiantrisufriyana_load')])
+    sapply(
+      x[x!='reticulate']
+      ,library
+      ,character.only=T
+    )
+    rm(x)
+    options(dplyr.summarise.inform=F)
+    dslabs::ds_theme_set()
+    # select=dplyr::select
+    # rename=dplyr::rename
+    # slice=dplyr::slice
+    reticulate::use_condaenv('./renv/python/condaenvs/renv-python',required=T)
+    renv::use_python(name='./renv/python/condaenvs/renv-python')
+    source('data/log.R')
+  }else{
+    BiocManager::install(
+       packages[['bioc_load']]
+       ,version='3.11'
+       ,update=F
+      )
+    sapply(
+      paste0('herdiantrisufriyana/',packages[['herdiantrisufriyana_load']])
+      ,devtools::install_github
+      ,upgrade=F
+      ,force=T
+    )
+    sapply(
+      packages[['devtools_no_load']]
+      ,function(x){
+        x=stringr::str_split(x,'\\|')[[1]]
+        devtools::install_version(x[1],x[2],upgrade=F)
+      }
+    )
+    extrafont::font_import()
+    reticulate::conda_create(
+      envname='./renv/python/condaenvs/renv-python'
+      ,packages='python=3.6.3'
+    )
+    reticulate::use_condaenv('./renv/python/condaenvs/renv-python',required=T)
+    renv::use_python(name='./renv/python/condaenvs/renv-python')
+    keras::install_keras(
+      method='conda',
+      version='2.3.0',
+      tensorflow='2.0.0-gpu',
+      envname='./renv/python/condaenvs/renv-python',
+      conda_python_version='3.6.3',
+      extra_packages=
+        c('numpy','pandas','matplotlib==3.1.0','scikit-learn','h5py==2.10.0'),
+      restart_session=F
+    )
+    # Please use console for this python installation.
+    reticulate::py_install(
+      envname='./renv/python/condaenvs/renv-python'
+      ,packages='h5py==2.10.0'
+      ,python_version='3.6.3'
+      ,pip=T
+      ,pip_options='--force-reinstall'
+      ,pip_ignore_installed=T
+    )
+    renv::snapshot()
+  }
+}
+
+rm(i)
+```
+
+
+## Study design
+
+This study followed guidelines for developing and validating multivariable 
+prediction model, which is the prediction model risk of bias assessment tool
+(PROBAST), and the guidelines for developing and reporting machine learning
+predictive models in biomedical research. The PROBAST was developed according 
+to the transparent reporting of a multivariable prediction model for individual 
+prognosis or diagnosis (TRIPOD) guidelines. But, these included recent findings 
+for development and validation of a multivariable prediction model, including 
+one by any machine learning algorithm. For clinician, we also provided a 
+checklist to assess the suitability of our model for their setting. A web 
+application is provided to use our prediction models for free 
+(https://predme.app/pre_gds15). We utilized dataset collected from our
+previous project for investigating loneliness and depression in elderly people.
+On June 2018, this dataset was collected using cross-sectional design from 15
+community health centers (CHCs) in Kendari, Indonesia (**n**=1,381). All 
+patients aged 60 years or older who visited CHCs with clear consciousness were 
+enrolled. We applied random sampling technique stratified by CHC. Data were 
+collected by trained enumerators blinded for the study outcome. Ethical 
+clearance for this study was waived by Taipei Medical University (TMU). The 
+original study had granted ethical clearance by TMU Joint Institutional Review 
+Board (approval number: N201905105) and The Ethical Research Committee in 
+Universitas Halu Oleo (approval number: 954/UN.29.20/PPM/2018).
+
+## Data source
+
+```{r Load raw data, include=FALSE}
+raw=
+  foreign::read.spss('data/data_20200830.sav') %>%
+  as.data.frame()
+```
+
+The dataset consisted of 19 attributes which are: 1) age (year); 2) gender
+(male/female); 3) religion (Christian/Hindus/Moslem); 4) education (illiterate/
+primary/secondary/high school/university/other); 5) marital status (single/
+married/separated or divorced/widowed); 6) children (number of persons); 7)
+living status (alone/with family member but no spouse/with spouse only/with
+family member and spouse/other); 8) currently employed (no/yes); 9) previously
+employed (no/yes); 10) income (IDR); 11) visit CHC (duration in year of routine
+visits); 12) comorbidity (number of conditions); 13) health condition (very
+good/good/fair/poor/very poor); 14) hearing problem (no/ yes); 15) visual 
+problem (no/yes); 16) oral status (very good/ good/fair/poor/very poor); 17) 
+medication (number of prescribed drug); 18) ethnicity (Bugis-Makasar/Buton/Muna/
+Tolaki/non-local ethnicity); and 19) depression status (no/yes). The first 17 
+attributes were used as predictors. We used ethnicity for data partition in 
+order to develop and validate our predictive models (see Model Validation).
+
+```{r Describe dataset, eval=FALSE, include=FALSE}
+raw %>%
+  summary() %>%
+  as.data.frame() %>%
+  filter(!is.na(Freq)) %>%
+  select(-Var1) %>%
+  mutate(Freq=str_remove_all(Freq,'\\s+')) %>%
+  separate(Freq,c('Summary','Value'),':') %>%
+  knitr::kable()
+```
+
+
+## Outcome definition
+
+As the predicted outcome, depression status was assessed based on the geriatric
+depression scale (GDS). There are 15 questions to get the score (0 to 15).
+Some items give a point if answered positively while others give a point if
+answered negatively. If the total score is greater than 5, the scale suggests
+depression. A participant answered the questions assisted by a trained
+enumerator. The GDS questionnaire is described (see Supplemental Materials).
+
+The trained enumerator that assists a participant to fill the GDS questionnaire
+were also blind to the predictor information. Predictor data were demographical
+data and routine physical health check result from physician. No information
+about the outcome was also known by the physician.
+
+The event definition for this prediction task is depression. This means a
+participant having positive result of the GDS. However, for complying sample
+size requirement of the model development (see Predictors), we treated the 
+outcome with smaller sample size as the event. Under-diagnosis causes missed 
+case of depression to screen by GDS-15, which leads to failed prevention of 
+major depressive disorders. Meanwhile, over-diagnosis causes increasing 
+frequency of GDS-15, which may lead to more misclassification. Nonetheless, the 
+risk of under-diagnosis outweighs the risk of over-diagnosis.
+
+```{r Answers that contribute a point in the GDS questionnaire, include=FALSE}
+outcome_value=
+  c('D1','No'
+  ,'D2','Yes'
+  ,'D3','Yes'
+  ,'D4','Yes'
+  ,'D5','No'
+  ,'D6','Yes'
+  ,'D7','No'
+  ,'D8','Yes'
+  ,'D9','Yes'
+  ,'D10','Yes'
+  ,'D11','No'
+  ,'D12','Yes'
+  ,'D13','No'
+  ,'D14','Yes'
+  ,'D15','Yes') %>%
+  matrix(15,2,T) %>%
+  as.data.frame() %>%
+  setNames(c('key','value2'))
+```
+
+```{r Compute the total score of the GDS, include=FALSE}
+proc=
+  raw %>%
+  mutate(
+    id=paste0('ID',str_pad(seq(nrow(.)),str_count(nrow(.)),'left','0'))
+  ) %>%
+  select_at(c('id',paste0('D',1:15))) %>%
+  gather(key,value,-id) %>%
+  left_join(outcome_value,by='key') %>%
+  mutate(score=ifelse(value==value2,1,0)) %>%
+  group_by(id) %>%
+  summarize(outcome=as.integer(sum(score)>5)) %>%
+  ungroup() %>%
+  right_join(
+    raw %>%
+      mutate(
+        id=paste0('ID',str_pad(seq(nrow(.)),str_count(nrow(.)),'left','0'))
+      ) %>%
+      select_at(colnames(.) %>% .[!.%in%paste0('D',1:15)])
+    ,by='id'
+  ) %>%
+  mutate(LivingStatus=str_replace_all(LivingStatus,'\\&+',' '))
+```
+
+```{r Sanity check of computed and manual outcome calculation, eval=FALSE, include=FALSE}
+proc %>%
+  mutate(outcome2=ifelse(TTGDS>5,1,0)) %>%
+  select(outcome,outcome2) %>%
+  filter(outcome!=outcome2|is.na(outcome))
+```
+
+
+## Data preprocessing
+
+```{r Data wrangling, include=FALSE}
+proc2=
+  proc %>%
+  select(-outcome) %>%
+  mutate(outcome=ifelse(TTGDS>5,1,0)) %>%
+  select_at(c(
+    'Race'
+    ,'Religion'
+    ,colnames(.) %>% .[!substr(.,1,1)=='R'])
+  ) %>%
+  select(
+    -VAR00001,-Birthday
+    ,-ADLSBarthelIndex
+    ,-IADLSLawton
+    ,-CogFunctionSPMSQ
+    ,-TTGDS
+    ,-CatGDS
+  ) %>%
+  select(id,Age,Gender,everything()) %>%
+  mutate_at(colnames(.) %>% .[.!='id'],function(x)
+    if(is.numeric(x)) x
+    else factor(str_to_lower(as.character(str_remove_all(x,'\\.|\\/'))))
+  ) %>%
+  mutate(
+    EduLevel=factor(str_replace_all(EduLevel,'6','other'))
+    ,LivingStatus=factor(str_replace_all(LivingStatus,'5','other'))
+  )
+```
+
+```{r Describe prepropressed data, eval=FALSE, include=FALSE}
+proc2 %>%
+  summary() %>%
+  as.data.frame() %>%
+  filter(!is.na(Freq)) %>%
+  select(-Var1) %>%
+  mutate(Freq=str_remove_all(Freq,'\\s+')) %>%
+  separate(Freq,c('Summary','Value'),':') %>%
+  knitr::kable()
+```
+
+```{r Check for missing value, eval=FALSE, include=FALSE}
+proc2 %>%
+  mutate_at(colnames(.) %>% .[.!='id'],function(x)as.integer(is.na(x))) %>%
+  summarize_at(colnames(.) %>% .[.!='id'],mean) %>%
+  gather(variable,missing) %>%
+  filter(missing>0)
+```
+
+All categorical predictors were binarized into 0 or 1 for no or yes whether a
+category is applied to a participant. All numerical predictors were standardized
+using the mean and standard deviation (SD) but capped at quantile 2.5% and 97.5%
+as the minimum and maximum value, respectively. This results on value range from
+approximately -1.96 to 1.96. Then, we applied normalization by shifting the
+central value, which is zero, to 0.5 and scaling down the range into its half;
+thus, the numerical predictors were within a range of 0 to 1.
+
+```{r Binarize categorical predictors, include=FALSE}
+proc3=
+  proc2 %>%
+  lapply(X=colnames(.),Y=.,function(X,Y){
+    if(is.factor(Y[[X]]) & X!='Race'){
+      if(!all(c('no','yes') %in% str_to_lower(levels(Y[[X]])))){
+        Y %>%
+          select_at(c('id',X)) %>%
+          mutate(value=1) %>%
+          setNames(c('id','variable','value')) %>%
+          mutate(variable=paste0(X,'.',str_remove_all(variable,'\\s+'))) %>%
+          spread(variable,value,fill=0) %>%
+          select(-id)
+      }else{
+        Y %>%
+          select_at(X) %>%
+          mutate_at(X,function(x)as.integer(str_to_lower(x)=='yes'))
+      }
+    }else{
+      Y %>%
+        select_at(X)
+    }
+  }) %>%
+  do.call(cbind,.) %>%
+  select(id,Race,everything()) %>%
+  column_to_rownames(var='id')
+```
+
+```{r Use only data of ethnicities from Sulawesi island, include=FALSE}
+proc4=
+  proc3 %>%
+  filter(Race!='not from sulawesi')
+```
+
+```{r Randomly hold-out 20% for internal validation, include=FALSE}
+index=list()
+set.seed(33)
+index$internal=
+  rownames(proc4) %>%
+  sample(length(.),F)
+
+index$test=
+  index$internal %>%
+  sample(round(0.2*length(.)),F)
+
+index$train=
+  index$internal %>%
+  setdiff(index$test)
+```
+
+```{r Get training set, include=FALSE}
+proc5=
+  proc4[index$train,] %>%
+  select(-Race)
+```
+
+```{r Check if the missing value exists in the training set, eval=FALSE, include=FALSE}
+proc5 %>%
+  filter(is.na(VisualProblem)) %>%
+  gather() %>%
+  arrange(desc(is.na(value)))
+```
+
+We only used the mean and SD calculated from data partition for model
+development. Numerical predictors in any data partitions were standardized using
+those values. Therefore, this preprocessing procedure can be applied for future
+data.
+
+```{r Create a data-transformation function, include=FALSE}
+data_transform=function(data1,data2){
+  sum_data2=
+    data2 %>%
+    select(
+      Age,NumberOfChildren,Income
+      ,VisitCHCTmsYears,Comorbidity,Medication
+      # ,ADLSBarthelIndex
+      # ,IADLSLawton
+      # ,CogFunctionSPMSQ
+    ) %>%
+    lapply(X=1,Y=.,function(X,Y){
+      rbind(summarize_all(Y,mean),summarize_all(Y,sd)) %>%
+        `rownames<-`(c('mean','sd'))
+    }) %>%
+    .[[1]]
+  
+  trans_data1=
+    data1 %>%
+    as.matrix() %>%
+    .[,colnames(sum_data2)] %>%
+    sweep(2,as.numeric(sum_data2['mean',]),'-') %>%
+    sweep(2,as.numeric(sum_data2['sd',]),'/')
+  
+  trans_data1=
+    ifelse(abs(trans_data1)>qnorm(0.975),qnorm(0.975),trans_data1)/qnorm(0.975)
+  
+  trans_data1=(trans_data1+1)/2
+  
+  cbind(
+    trans_data1
+    ,as.matrix(data1) %>% .[,!colnames(.)%in%colnames(sum_data2)]
+  )
+}
+```
+
+```{r Save numerical feature-wise average and SD, eval=FALSE, include=FALSE}
+proc5 %>%
+  select(
+    Age,NumberOfChildren,Income
+    ,VisitCHCTmsYears,Comorbidity,Medication
+    # ,ADLSBarthelIndex
+    # ,IADLSLawton
+    # ,CogFunctionSPMSQ
+  ) %>%
+  lapply(X=1,Y=.,function(X,Y){
+    rbind(summarize_all(Y,mean),summarize_all(Y,sd)) %>%
+      `rownames<-`(c('mean','sd'))
+  }) %>%
+  .[[1]] %>%
+  rownames_to_column(var='metric') %>%
+  saveRDS('data/feature_scaler.rds')
+```
+
+```{r Transform and visualize the data, eval=FALSE, include=FALSE}
+data_transform(proc5,proc5) %>%
+  boxplot(main='train')
+data_transform(select(proc4[index$test,],-Race),proc5) %>%
+  boxplot(main='internal')
+data_transform(select(filter(proc3,Race=='not from sulawesi'),-Race),proc5) %>%
+  boxplot(main='external')
+```
+
+We checked missing value in the dataset. The only missing value was found in
+visual problem for a participant (n=1/1381, 0.072%). This was missing completely
+at random since we got this information from routine physical health check data.
+We imputed the missing value using multiple imputation by chain equation (MICE)
+method after data transformation using only data in the same data partition.
+By random, the missing value was a part of data partition for model development.
+
+```{r Tranform the training set, include=FALSE}
+proc6=
+  data_transform(proc5,proc5) %>%
+  mice(m=5,maxit=50,meth='pmm',seed=33) %>%
+  complete(1)
+```
+
+```{r See the data summary, eval=FALSE, include=FALSE}
+proc5 %>%
+  summary()
+proc5 %>%
+  sapply(quantile,c(0.025,0.975),na.rm=T) %>%
+  t()
+```
+
+```{r Income conversion example, eval=FALSE, include=FALSE}
+# price / Big Mac Indonesia * Big Mac Taiwan
+  50000 /    34000          *       72
+```
+
+```{r Create an outcome-balancer function, include=FALSE}
+outcome_balancer=function(data1){
+  data1_0=filter(data1,outcome==0)
+  data1_1=filter(data1,outcome==1)
+  if(nrow(data1_0)==nrow(data1_1)){
+    rbind(data1_0,data1_1) %>%
+      .[sample(1:nrow(.),nrow(.),F),]
+  }else{
+    if(nrow(data1_0)>nrow(data1_1)){
+      data1_1=
+        data1_1 %>%
+        .[sample(1:nrow(.),nrow(data1_0),T),]
+    }else{
+      data1_0=
+        data1_0 %>%
+        .[sample(1:nrow(.),nrow(data1_1),T),]
+    }
+    
+    rbind(data1_0,data1_1) %>%
+      .[sample(1:nrow(.),nrow(.),F),]
+  }
+}
+```
+
+```{r Conduct MICE for the training set, include=FALSE}
+proc7=outcome_balancer(proc6)
+```
+
+## Predictors
+
+We only used data partition for model development to conduct predictor
+extraction, representation, and selection. For candidate of predictors, the
+binarized predictors were extracted only to those without perfect separation
+problem in which the predictor is found only in one of the outcome. The perfect
+separation may happen because of sampling error. Although this may also happen
+in population, including this kind of predictor may mislead predictive modeling
+to choose that predictor as the strong one for predicting the outcome. Of 40
+predictors after binarization, only 37 of them were extracted. The excluded
+predictors were living status of other, oral status of very poor, and religion
+of Hindu.
+
+We assessed redundant predictors assisted by Pearson correlation 
+coefficients. Two binarized predictors had high correlation (r=0.72), which 
+were between living with family members without spouse and widowed marital 
+status. We decided to retain these variables because the correlation was near 
+borderline and apparently due to sampling bias. Widowed marital status is not 
+necessarily living with family members. The older adult may live alone. This is 
+also considerably not interchangeable.
+
+```{r Check for perfect separation problem, include=FALSE}
+predictors=
+  proc7 %>%
+  group_by(outcome) %>%
+  summarize_all(mean) %>%
+  gather(variable,value,-outcome) %>%
+  spread(outcome,value) %>%
+  filter(!(`0`%in%0:1|`1`%in%0:1))
+```
+
+```{r Assess redundant variables assisted by Pearson correlation, eval=FALSE, include=FALSE}
+proc7 %>%
+  as.matrix() %>%
+  cor() %>%
+  as.data.frame() %>%
+  rownames_to_column(var='key1') %>%
+  gather(key2,r,-key1) %>%
+  filter(key1!=key2) %>%
+  mutate(
+    key=
+      sapply(X=seq(nrow(.)),Y=key1,Z=key2,function(X,Y,Z){
+        sort(c(Y[X],Z[X])) %>%
+          paste0(collapse='|')
+      })
+  ) %>%
+  select(-key1,-key2) %>%
+  separate(key,c('key1','key2'),sep='\\|') %>%
+  filter(!duplicated(.)) %>%
+  arrange(desc(r))
+```
+
+```{r Save NPS predictors, eval=FALSE, include=FALSE}
+saveRDS(predictors,'data/predictors.rds')
+```
+
+```{r Indexing for 10-fold CV and training by NPS predictors, include=FALSE}
+set=list()
+set$cv_idx=
+  createDataPartition(proc7$outcome,times=10,p=9/10,list=F) %>%
+  lapply(X=1:ncol(.),Y=.,Z=proc7,function(X,Y,Z){
+    rownames(Z[Y[,X],])
+  })
+set$training=proc7[,c('outcome',predictors$variable)]
+```
+
+```{r Create empty list to save models, include=FALSE}
+model=list()
+```
+
+```{r Conduct tuning and training of baseline model by elastic net regression, include=FALSE}
+set.seed(33)
+if(FALSE){
+  model$elnet=
+    train(
+      outcome~.
+      ,data=
+        set$training %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='glmnet'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          'cv'
+          ,number=10
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneLength=10
+    )
+  
+  model$elnet=
+    train(
+      outcome~.
+      ,data=
+        set$training %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='glmnet'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          method='boot'
+          ,number=30
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneGrid=
+        data.frame(
+          alpha=model$elnet$bestTune$alpha
+          ,lambda=model$elnet$bestTune$lambda
+        )
+    )
+  
+  saveRDS(model$elnet,'data/model_elnet.rds')
+}else{
+  model$elnet=readRDS('data/model_elnet.rds')
+}
+```
+
+Based on PROBAST guidelines, we needed to choose only 19 candidate of predictors
+to comply sample size for predictive modeling, which is 20 events per variable
+or candidate of predictors (see Model Validation). To optimize predictive
+performance, we applied dimensional reduction technique using principal
+component analysis (PCA). We only used top 19 principal components (PCs) based
+on the percent variance explained. Ten-fold cross-validation procedure was
+applied. We used the average values computed from ten rotated matrices of PCs
+to represent 37 binarized and numerical predictors into 19 PCs. We also used
+the average values of data partition for model development to get PCs of those
+for model validation.
+
+```{r Conduct cross-validated PCA, include=FALSE}
+if(FALSE){
+  model$pca=
+    set$training %>%
+    # mutate(outcome=predict(model$elnet,set$training,'prob')$event) %>%
+    select(-outcome) %>%
+    `rownames<-`(rownames(set$training)) %>%
+    pblapply(X=seq(length(set$cv_idx)),Y=set$cv_idx,Z=.,function(X,Y,Z){
+      K=Z[Y[[X]],]
+      
+      L=summarize_all(K,mean) %>%
+        gather()
+      L=setNames(L$value,L$key)
+      M=summarize_all(K,sd) %>%
+        gather()
+      M=setNames(M$value,M$key)
+      N=as.matrix(K) %>%
+        sweep(2,L,'-') %>%
+        sweep(2,M,'/') %>%
+        prcomp()
+      
+      list(mean=L,sd=M,prcomp=N)
+    })
+  
+  saveRDS(model$pca,'data/model_pca.rds')
+}else{
+  model$pca=readRDS('data/model_pca.rds')
+}
+```
+
+```{r Create a function to compute maximum PCs given expected EPVs, include=FALSE}
+max_pc=function(epv){
+  index[3] %>%
+    sapply(function(x){
+      table(proc4[x,'outcome'])
+    }) %>%
+    .['0',] %>%
+    sapply(X=1,Y=.,function(X,Y)floor(Y/epv)) %>%
+    .[[1]]
+}
+```
+
+```{r Create a function to convert predictors into PCs, include=FALSE}
+pc_converter=function(data
+                      # ,elnet
+                      ,pca,npc=NULL){
+  
+  pb=startpb(0,7)
+  on.exit(closepb(pb))
+  setpb(pb,0)
+  
+  if(is.null(npc)) npc=seq(ncol(pca[[1]]$prcomp$rotation))
+  
+  setpb(pb,1)
+  rotated_pc=
+    pca %>%
+    lapply(X=seq(length(.)),Y=.,function(X,Y){
+      as.data.frame(Y[[X]]$prcomp$rotation[,npc]) %>%
+        rownames_to_column(var='predictor')
+    }) %>%
+    do.call(rbind,.)
+  
+  setpb(pb,2)
+  rotated_pc=
+    rotated_pc %>%
+    group_by(predictor) %>%
+    summarize_all(function(x)mean(x,na.rm=T)) %>%
+    ungroup() %>%
+    column_to_rownames(var='predictor')
+  
+  setpb(pb,3)
+  scaler=
+    pca %>%
+    lapply(X=seq(length(.)),Y=.,function(X,Y){
+      data.frame(predictor=names(Y[[X]]$mean),mean=Y[[X]]$mean,sd=Y[[X]]$sd) %>%
+        `rownames<-`(NULL)
+    }) %>%
+    do.call(rbind,.)
+  
+  setpb(pb,4)
+  scaler=
+    scaler %>%
+    group_by(predictor) %>%
+    summarize_all(function(x)mean(x,na.rm=T)) %>%
+    ungroup() %>%
+    column_to_rownames(var='predictor')
+  
+  setpb(pb,5)
+  scaled_data=
+    data %>%
+    # mutate(outcome=predict(elnet,data,'prob')$event) %>%
+    select(-outcome) %>%
+    `rownames<-`(rownames(data)) %>%
+    .[,rownames(rotated_pc)] %>%
+    sweep(2,scaler$mean,'-') %>%
+    sweep(2,scaler$sd,'/')
+  
+  setpb(pb,6)
+  pc_data=as.matrix(scaled_data) %*% as.matrix(rotated_pc)
+  
+  setpb(pb,7)
+  as.data.frame(pc_data)
+  
+}
+```
+
+```{r Represented predictors as the cross-validated PCA, include=FALSE}
+set$training_pc=
+  set$training %>%
+  pc_converter(
+    # model$elnet,
+    model$pca
+    ,npc=1:max_pc(20)
+  )
+```
+
+We also used other machine learning algorithms beside logistic regression to
+develop the prediction models (see Model Development). However, the models
+require larger sample size which is >50 events per variable. We used wrapper
+method in which we selected the PCs using logistic regression before being
+candidate predictors for the machine learning models. We applied the same
+hyperparameter tuning strategy of logistic regression for this predictor
+selection (see Model development).
+
+```{r Conduct PC selection using elastic net regression, include=FALSE}
+if(FALSE){
+  set.seed(33)
+  model$pc_elnet=
+    caret::train(
+      outcome~.
+      ,data=
+        set$training %>%
+        select(outcome) %>%
+        cbind(set$training_pc) %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='glmnet'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          'cv'
+          ,number=10
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneLength=10
+    )
+  
+  model$pc_elnet=
+    caret::train(
+      outcome~.
+      ,data=
+        set$training %>%
+        select(outcome) %>%
+        cbind(set$training_pc) %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='glmnet'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          method='boot'
+          ,number=30
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneGrid=
+        data.frame(
+          alpha=model$pc_elnet$bestTune$alpha
+          ,lambda=model$pc_elnet$bestTune$lambda
+        )
+    )
+  
+  saveRDS(model$pc_elnet,'data/model_pc_elnet.rds')
+}else{
+  model$pc_elnet=readRDS('data/model_pc_elnet.rds')
+}
+
+set$selected_pc=
+  coef(model$pc_elnet$finalModel,model$pc_elnet$bestTune$lambda) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var='predictor') %>%
+  mutate(predictor=str_remove_all(predictor,'\\`|\\(|\\)')) %>%
+  setNames(c('predictor','estimate')) %>%
+  filter(estimate!=0) %>%
+  arrange(desc(abs(estimate))) %>%
+  filter(predictor!='Intercept') %>%
+  slice(1:max_pc(epv=50))
+```
+
+```{r Save selected PC, eval=FALSE, include=FALSE}
+saveRDS(set$selected_pc,'data/selected_pc.rds')
+```
+
+## Model development
+
+We developed four models with different approaches. First, we applied the
+simplest model using logistic regression (LR) with shrinkage method as
+recommended by the PROBAST guidelines. Instead of the PCs, the thirty seven
+candidates of predictors were used. Elastic net regression algorithm was applied
+in which L1- and L2-norm regularization were conducted. We chose this
+regularization method over others to minimize both of the excluded predictors
+and to prevent overfitting. Hyperparameter tuning was conducted by random search
+up to 10 configuration of alpha and lambda values as L1- and L2-norm
+regularization factors, respectively.
+
+```{r Conduct tuning and training of model by random forest, include=FALSE}
+if(FALSE){
+  set.seed(33)
+  model$spc_rf=
+    caret::train(
+      outcome~.
+      ,data=
+        set$training %>%
+        select(outcome) %>%
+        cbind(set$training_pc[,set$selected_pc$predictor]) %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='Rborist'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          'cv'
+          ,number=10
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneLength=6
+    )
+  
+  model$spc_rf=
+    caret::train(
+      outcome~.
+      ,data=
+        set$training %>%
+        select(outcome) %>%
+        cbind(set$training_pc[,set$selected_pc$predictor]) %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='Rborist'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          method='boot'
+          ,number=30
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneGrid=
+        data.frame(
+          predFixed=model$spc_rf$bestTune$predFixed
+          ,minNode=model$spc_rf$bestTune$minNode
+        )
+    )
+  
+  saveRDS(model$spc_rf,'data/model_spc_rf.rds')
+}else{
+  model$spc_rf=readRDS('data/model_spc_rf.rds')
+}
+```
+
+The second and third prediction models were developed using random forest (RF)
+and gradient boosting machine (GBM) algorithms. RF algorithm randomly selects
+some predictors to build multiple classification trees using subset of samples
+in parallel. Meanwhile, gradient boosting machine applied the similar algorithm
+sequentially. This means the later tree is used to predict misclassification
+of the earlier ones. Both algorithms were the most used competition-winning
+algorithms for prediction using tabular data. Hyperparameter tuning was also
+conducted by random search over 6 configurations of the number of predictors
+being sampled a time for RF and number of trees, maximum depth of a tree,
+and shrinkage factor for GBM. Minimum samples per node was also configured for
+both models.
+
+```{r Conduct tuning and training of model by gradient boosting machine, include=FALSE}
+if(FALSE){
+  set.seed(33)
+  model$spc_gbm=
+    caret::train(
+      outcome~.
+      ,data=
+        set$training %>%
+        select(outcome) %>%
+        cbind(set$training_pc[,set$selected_pc$predictor]) %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='gbm'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          'cv'
+          ,number=10
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneLength=6
+    )
+  
+  model$spc_gbm=
+    caret::train(
+      outcome~.
+      ,data=
+        set$training %>%
+        select(outcome) %>%
+        cbind(set$training_pc[,set$selected_pc$predictor]) %>%
+        mutate(
+          outcome=
+            factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='gbm'
+      ,metric='ROC'
+      ,trControl=
+        trainControl(
+          method='boot'
+          ,number=30
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+      ,tuneGrid=
+        data.frame(
+          n.trees=model$spc_gbm$bestTune$n.trees
+          ,interaction.depth=model$spc_gbm$bestTune$interaction.depth
+          ,shrinkage=model$spc_gbm$bestTune$shrinkage
+          ,n.minobsinnode=model$spc_gbm$bestTune$n.minobsinnode
+        )
+    )
+  
+  saveRDS(model$spc_gbm,'data/model_spc_gbm.rds')
+}else{
+  model$spc_gbm=readRDS('data/model_spc_gbm.rds')
+}
+```
+
+The last prediction model was developed using the DeepInsight visible neural
+network (DI-VNN) algorithm.  This is a deep learning model or a convolutional
+neural network (CNN). This model is emerged in recent years because it improves
+predictive performance for image data. The DeepInsight algorithm converts a
+non-image into an image-like data as a multidimensional array in a meaningful
+way using dimensional reduction algorithm over the predictors. Visible neural
+network means that the network architecture is data-driven because it is
+determined based on hierarchical clustering algorithm over the predictors. This
+addresses critics to CNN as a black-box model of which characteristics do not
+imply the data but predicting the outcome very well. Details about DI-VNN 
+pipeline was already described elsewhere. Some modifications on this pipeline 
+is also described (see Supplemental Materials).
+
+```{r Set up raw data for DI-VNN consisting 19 PCs, include=FALSE}
+set$divnn$raw=
+  set$training %>%
+  cbind(pc_converter(
+    set$training
+    # ,model$elnet
+    ,model$pca
+  ))
+```
+
+This algorithm had been applied based on a previous study, as described 
+elsewhere. We used differential analysis to preprocess PCs for DI-VNN model, 
+that is commonly used in genomic data science. This analysis deals with 
+high-dimensional data (e.g. many genes/features/predictors) but relatively 
+smaller sample size (e.g. number of microarray chips). The fourth model is a 
+deep learning model that require larger sample size in relative to the number 
+of predictors. In differential analysis, the aggregated values of all 
+predictors are distributed the same among samples by quantile-to-quantile 
+normalization. By applying a univariable linear regression for each predictor, 
+we can estimate average value for each predictor using the aggregated-values 
+assumption. We applied this procedure over 37 predictors and 19 PCs resulting 
+18 candidate features for DI-VNN. These were centered using each average value 
+after quantile-to-quantile normalization over all features among samples.
+
+We applied 1-Bit stochastic gradient descent (SGD) to transform the selected PCs
+into -1 and 1 if respectively being negative and positive after centralizing 
+the value. This is important to reduce computational complexity since DI-VNN 
+model have relatively a wider network than a conventional, sequential deep 
+learning model.
+
+By differential analysis and 1-Bit SGD, we transformed the data becoming -1 and
+1 if the data were respectively downward and upward in differential assumption
+over the outcome. The data may also be 0 if exactly the same with the
+differential average values. This practice is derived from genomic data science
+that deals with high-dimensional data. We applied predictor selection using 
+false discovery rate (FDR) or adjusted **p**-value by Benjamini-Hochberg 
+correction (FDR<0.05).
+
+```{r Differential analysis as PC selection for DI-VNN, include=FALSE}
+set$divnn$fit=
+  set$divnn$raw %>%
+  select(-outcome) %>%
+  t() %>%
+  normalize.quantiles() %>%
+  `dimnames<-`(dimnames(t(select(set$divnn$raw,-outcome)))) %>%
+  lmFit(model.matrix(
+    ~outcome
+    ,set$divnn$raw %>%
+      select(outcome) %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+  )) %>%
+  eBayes() %>%
+  topTable(coef=2,nrow(.$coefficients),adjust.method='BH',sort.by='none') %>%
+  filter(adj.P.Val<0.05)
+```
+
+```{r Save differential analysis fitting results, eval=FALSE, include=FALSE}
+saveRDS(set$divnn$fit,'data/diff_fit.rds')
+```
+
+```{r Filter PCs using the differential analysis results, include=FALSE}
+set$divnn$unnorm=
+  set$divnn$raw %>%
+  select(-outcome) %>%
+  .[,rownames(set$divnn$fit)] %>%
+  as.matrix()
+
+set$divnn$norm=
+  set$divnn$unnorm %>%
+  t() %>%
+  normalize.quantiles.use.target(set$divnn$fit$AveExpr) %>%
+  t() %>%
+  `dimnames<-`(dimnames(set$divnn$unnorm))
+```
+
+```{r 1-bit SGD transformation, include=FALSE}
+set$divnn$predictor_v=
+  set$divnn$norm %>%
+  sweep(2,set$divnn$fit$AveExpr,'-') %>%
+  pbsapply(function(x){ifelse(x==0,0,ifelse(x>0,1,-1))}) %>%
+  matrix(
+    ncol=ncol(set$divnn$unnorm),byrow=FALSE,dimnames=dimnames(set$divnn$unnorm)
+  ) %>%
+  as.data.frame()
+```
+
+To apply both DeepInsight and visible neural network, we need to compute Pearson
+correlation matrix between two different PCs that can be possibly paired. To
+standardize the PCs, we used only PC-wise mean and SD from data partition for
+model development. We projected the PCs into three dimensions for each sample
+using **t**-distributed stochastic neighbor embedding (**t**-SNE) algorithm 
+with Barnes-Hut approximation. This algorithm was used because we expected the
+predictors being projected widely spread into several localities instead of
+being clusters to a few centroid. We also expected the localities are visually
+intuitive. The **t**-SNE algorithm is widely used for visualization of 
+single-cell genomics data. Three **t**-SNE dimensions were used to create 
+three-dimensional array whereas each predictor is placed on a position based on 
+the dimensions with the 1-bit SGD value. Other positions within the array were 
+filled with zero. We called this array as ontomap. However, later we needed to 
+group the PCs hierarchically as the neural network architecture.
+
+```{r Save the training PC-wise mean+SD and standardize the data, include=FALSE}
+set$divnn$predictor_m=
+  set$divnn$unnorm %>%
+  colMeans2()
+set$divnn$predictor_s=
+  set$divnn$unnorm %>%
+  colSds()
+set$divnn$proc=
+  set$divnn$unnorm %>%
+  sweep(2,set$divnn$predictor_m,'-') %>%
+  sweep(2,set$divnn$predictor_s,'/')
+```
+
+```{r Compute Pearson correlation matrix, include=FALSE}
+set$divnn$predictor_p=
+  colnames(set$divnn$unnorm) %>%
+  lapply(X=seq(length(.)-1),Y=.,function(X,Y){
+    data.frame(predictor1=Y[X],predictor2=Y[(X+1):length(.)])
+  }) %>%
+  do.call(rbind,.) %>%
+  mutate(
+    pearson=
+      pbsapply(X=seq(nrow(.)),Y=.,Z=set$divnn$proc,function(X,Y,Z){
+        cor(Z[,Y$predictor1[X]],Z[,Y$predictor2[X]])
+      })
+  ) %>%
+  rbind(
+    setNames(select(.,predictor2,predictor1,everything()),colnames(.))
+    ,data.frame(
+      predictor1=colnames(set$divnn$unnorm)
+      ,predictor2=colnames(set$divnn$unnorm)
+      ,pearson=1)
+  ) %>%
+  spread(predictor2,pearson) %>%
+  column_to_rownames(var='predictor1') %>%
+  as.matrix()
+```
+
+```{r Save Pearson correlation matrix, eval=FALSE, include=FALSE}
+saveRDS(set$divnn$predictor_p,'data/predictor_p.rds')
+```
+
+```{r Conduct dimensional reduction using t-SNE algorithm, include=FALSE}
+if(FALSE){
+  set.seed(33)
+  set$divnn$predictor_tsne=
+    set$divnn$predictor_p %>%
+    Rtsne(dims=3,perplexity=5,verbose=T,is_distance=T)
+  
+  saveRDS(set$divnn$predictor_tsne,'data/predictor_tsne.rds')
+}else{
+  set$divnn$predictor_tsne=readRDS('data/predictor_tsne.rds')
+}
+```
+
+We used a hierarchical clustering algorithm to create a data-driven ontology
+based on the PCs. Clique-extracted ontology (CliXO) algorithm was used because
+this algorithm can assign a PC into more than one group; in other hand, we
+would get a hierarchy in which a child group can be connected to more than one
+parent. In real world, an entity (e.g. gene) can be classified as several
+categories that may be unrelated (e.g. biological pleiotropy). This algorithm is
+originally developed to infer an ontology based on the genomic data that can
+reconstruct human-curated gene ontology precisely. There is no other clustering
+algorithm that respects the pleiotropy. We called the ontology-based neural
+network as ontonet.
+
+```{r Run CliXO, include=FALSE}
+if(FALSE){
+  set$divnn$predictor_c=
+    set$divnn$predictor_p %>%
+    clixo()
+  
+    saveRDS(set$divnn$predictor_c,'data/predictor_c.rds')
+}else{
+  set$divnn$predictor_c=readRDS('data/predictor_c.rds')
+}
+```
+
+For each ontology group, we created an array that is a subset of an ontomap.
+Each array consisted only the PCs for an ontology group. This set of PCs is
+called ontotype, while the resulting array is called ontoarray. We used Keras
+with TensorFlow backend to implement this deep learning model. The Keras model
+architecture is constructed based on the ontonet. For each edge connecting
+between two ontology groups, we apply an Inception-v3-ResNet block of hidden
+layers. We called the block as ontopath. The inputs for the Keras model were
+the ontoarrays as described previously.
+
+```{r Compile inputs for DI-VNN modeling, include=FALSE}
+set$divnn$input$value=set$divnn$predictor_v
+
+set$divnn$input$outcome=
+  set$training$outcome %>%
+  setNames(rownames(set$divnn$input$value))
+
+set$divnn$input$similarity=set$divnn$predictor_p
+
+set$divnn$input$mapping=
+  set$divnn$predictor_tsne$Y %>%
+  `rownames<-`(colnames(set$divnn$input$value))
+
+set$divnn$input$ontology=
+  set$divnn$predictor_c %>%
+  mutate_all(function(x)str_replace_all(x,'CliXO:','ONT:'))
+```
+
+```{r Create tidy set of the inputs above, include=FALSE}
+if(FALSE){
+  set$divnn$output=
+    TidySet.compile(
+      value=set$divnn$input$value
+      ,outcome=set$divnn$input$outcome
+      ,similarity=set$divnn$input$similarity
+      ,mapping=set$divnn$input$mapping
+      ,ontology=set$divnn$input$ontology
+      ,ranked=T
+      ,dims=7
+      ,decreasing=F
+      ,seed_num=33
+    )
+
+  saveRDS(set$divnn$output,'data/output.rds')
+}else{
+  set$divnn$output=readRDS('data/output.rds')
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+set$divnn$output %>%
+  .[,1] %>%
+  saveRDS('data/single_tidyset.rds')
+```
+
+```{r Create pruned-ontology tidy set of the inputs above, include=FALSE}
+set$divnn$input$ontology2=
+  set$divnn$input$ontology %>%
+  filter(target%in%c('ONT:20','ONT:24','ONT:22','ONT:25')) %>%
+  filter(
+    (target!='ONT:24') |
+    (target=='ONT:24' & source=='ONT:20')
+  ) %>%
+  filter(
+    (target!='ONT:25') |
+    (target=='ONT:25' & source%in%c('ONT:22','ONT:24'))
+  )
+
+set$divnn$input$feature2=
+  set$divnn$input$ontology2 %>%
+  filter(relation=='feature') %>%
+  select(source) %>%
+  filter(!duplicated(.)) %>%
+  pull(source)
+
+if(FALSE){
+  set$divnn$output2=
+    TidySet.compile(
+      value=
+        set$divnn$input$value %>%
+        .[,set$divnn$input$feature2]
+      ,outcome=set$divnn$input$outcome
+      ,similarity=
+        set$divnn$input$similarity %>%
+        .[set$divnn$input$feature2,set$divnn$input$feature2]
+      ,mapping=
+        set$divnn$input$mapping %>%
+        .[set$divnn$input$feature2,]
+      ,ontology=set$divnn$input$ontology2
+      ,ranked=T
+      ,dims=7
+      ,decreasing=F
+      ,seed_num=33
+    )
+  
+  saveRDS(set$divnn$output2,'data/output2.rds')
+}else{
+  set$divnn$output2=readRDS('data/output2.rds')
+}
+```
+
+```{r Create a function to refresh keras backend session, include=FALSE}
+refresh_session=function(){
+  set.seed(33)
+  library(tensorflow)
+  library(keras)
+  k_clear_session()
+  tf$random$set_seed(33)
+  gpu_options=
+    tf$compat$v1$GPUOptions(
+      allow_growth=TRUE,
+      per_process_gpu_memory_fraction=1,
+      visible_device_list='0'
+    )
+  config=tf$compat$v1$ConfigProto(gpu_options=gpu_options)
+  session=tf$compat$v1$Session(config=config)
+  graph=tf$compat$v1$get_default_graph
+  tf$compat$v1$keras$backend$set_session(session)
+}
+refresh_session()
+```
+
+For training, we also applied a particular strategy. The weights were updated
+using backpropagation algorithm with stochastic gradient descent (SGD). Initial
+learning rate of 2e-6 and momentum of 0.9 were chosen based on a previous study 
+for empirical optimum performance. We used weighted mean squared error (MSE) as 
+the loss function. The Keras model had multiple outputs consisting all ontology 
+groups and the root of the top groups. Each output from the group was weighted 
+0.3 while that of root node was weighted 1; all were normalized such that the 
+total weight was equal to 1. The maximum iteration or epoch was 500 times but 
+may be stopped earlier after 250 epochs if root MSE for current epoch is lower 
+than the previous one by >0.001. However, we only used weights when the root 
+MSE is the lowest. Only root MSE from the validation set was used. The learning 
+rate was also reduced with the factor of 0.96 if improvement was 0.01 or less 
+for the evaluation metric in validation set. For the first 5% steps for each 
+iteration, the learning rate increased from 1/32 to the learning rate at that 
+iteration. We applied a batch size of 8 based on maximum predictive performance 
+that can be achieved among that batch size with those of 8, 16, and 32. 
+Hyperparameter tuning was conducted using grid search of 10 L2-norm 
+regularization factors (lambda) from 1e-10 to 1e-1. Five epochs were used as 
+the maximum iteration for hyperparameter tuning.
+
+```{r Create a function to create training function given a lambda, include=FALSE}
+trainer_generator=function(tidy_set
+                           ,path=NULL
+                           ,epochs=500
+                           ,batch_size=128
+                           ,warm_up=0.05
+                           ,lr=2^-6
+                           ,tuning_mode=F
+                           ,checkpoint=F
+                           ,verbose=1){
+  function(lambda){
+    refresh_session()
+    ontonet=
+      tidy_set %>%
+      generator.ontonet(path=path,l2_norm=lambda)
+    
+    if(checkpoint & dir.exists(path)){
+      cat('Checkpoint is detected. Restore checkpoint: ',sep='')
+      cat('...',sep='')
+      load_model_weights_tf(ontonet,paste0(path,'/ckpt'))
+      cat(' Done.\n',sep='')
+    }
+    
+    ontonet %>%
+      compile(
+        optimizer=optimizer_sgd(lr=lr,momentum=0.9)
+        ,loss='mean_squared_error'
+        ,loss_weights=c(rep(
+            0.3/(0.3*(length(.$outputs)-1)+1),length(.$outputs)-1)
+            ,1/(0.3*(length(.$outputs)-1)+1)
+          )
+        ,metrics=c(
+            tf$keras$metrics$AUC(name='roc')
+            ,tf$keras$metrics$TruePositives(name='tp')
+            ,tf$keras$metrics$FalseNegatives(name='fn')
+            ,tf$keras$metrics$FalsePositives(name='fp')
+            ,tf$keras$metrics$TrueNegatives(name='tn')
+          )
+      )
+    
+    cb_early_stopping=
+      callback_early_stopping(
+        monitor='val_root_roc'
+        ,mode='max'
+        ,min_delta=0.001
+        ,patience=round(epochs/2)
+        ,restore_best_weights=T
+      )
+    
+    cb_lr_reduction=
+      callback_reduce_lr_on_plateau(
+      monitor='val_root_roc'
+      ,factor=0.96
+      ,patience=1
+      ,verbose=0
+      ,mode='max'
+      ,min_delta=0.01
+      ,cooldown=0
+      ,min_lr=lr/32
+    )
+    
+    on_epoch_begin_fun=function(epoch,logs){
+        current_epoch_lr=k_get_value(ontonet$optimizer$lr)
+        lr_gradient<<-seq(current_epoch_lr/32,current_epoch_lr,len=warm_up_steps)
+    }
+    
+    on_train_batch_end_fun=function(batch,logs){
+        if((batch+1)<=warm_up_steps){
+          k_set_value(ontonet$optimizer$lr,lr_gradient[batch+1])
+        }
+        cat(sprintf('\r'),sep='')
+        cat('Step: ',batch+1,'/',steps_per_epoch,'; ',sep='')
+        cat('LR: ',round(k_get_value(ontonet$optimizer$lr),10),'; ',sep='')
+        cat('Total: ',append=T,sep='')
+        cat('loss=',round(logs[["loss"]],4),'; ',sep='')
+        cat('Root: ',append=T,sep='')
+        cat('loss=',round(logs[["root_loss"]],4),'; ',sep='')
+        cat('ROC=',round(logs[["root_roc"]],4),'; ',sep='')
+        cat('TP=',round(logs[["root_tp"]]),'; ',sep='')
+        cat('FN=',round(logs[["root_fn"]]),'; ',sep='')
+        cat('FP=',round(logs[["root_fp"]]),'; ',sep='')
+        cat('TN=',round(logs[["root_tn"]]),sep='')
+    }
+    
+    on_epoch_end_fun=function(epoch,logs){
+        cat('\n',sep='')
+        cat('Epoch: ',epoch+1,'/',epochs,'; ',sep='')
+        cat('LR: ',round(k_get_value(ontonet$optimizer$lr),10),'; ',sep='')
+        cat('Total: ',sep='')
+        cat('loss=',round(logs[["val_loss"]],4),'; ',sep='')
+        cat('Root: ',append=T,sep='')
+        cat('loss=',round(logs[["val_root_loss"]],4),'; ',sep='')
+        cat('ROC=',round(logs[["val_root_roc"]],4),'; ',sep='')
+        cat('TP=',round(logs[["val_root_tp"]]),'; ',sep='')
+        cat('FN=',round(logs[["val_root_fn"]]),'; ',sep='')
+        cat('FP=',round(logs[["val_root_fp"]]),'; ',sep='')
+        cat('TN=',round(logs[["val_root_tn"]]),sep='')
+        cat('\n')
+    }
+    
+    on_test_batch_end_fun=function(batch,logs){
+        cat(sprintf('\r'),sep='')
+        cat('Evaluate: ',batch+1,'/',steps,'; ',sep='')
+        cat('LR: ',round(k_get_value(ontonet$optimizer$lr),10),'; ',sep='')
+        cat('Total: ',append=T,sep='')
+        cat('loss=',round(logs[["loss"]],4),'; ',sep='')
+        cat('Root: ',append=T,sep='')
+        cat('loss=',round(logs[["root_loss"]],4),'; ',sep='')
+        cat('ROC=',round(logs[["root_roc"]],4),'; ',sep='')
+        cat('TP=',round(logs[["root_tp"]]),'; ',sep='')
+        cat('FN=',round(logs[["root_fn"]]),'; ',sep='')
+        cat('FP=',round(logs[["root_fp"]]),'; ',sep='')
+        cat('TN=',round(logs[["root_tn"]]),sep='')
+    }
+    
+    on_test_end_fun=function(logs){
+        cat('\n')
+    }
+    
+    if(verbose>0){
+      callback_list=
+        c(cb_early_stopping
+          ,cb_lr_reduction
+          ,callback_lambda(
+            on_epoch_begin=on_epoch_begin_fun
+            ,on_train_batch_end=on_train_batch_end_fun
+            ,on_epoch_end=on_epoch_end_fun
+          ))
+    }else{
+      callback_list=c(cb_early_stopping)
+    }
+    
+    if(checkpoint){
+      cb_checkpoint=
+        callback_model_checkpoint(
+          paste0(path,'/ckpt')
+          ,monitor='val_root_loss'
+          ,verbose=0
+          ,save_best_only=T
+          ,save_weights_only=T
+          ,mode='min'
+          ,save_freq='epoch'
+        )
+      callback_list=c(callback_list,cb_checkpoint)
+    }
+    
+    set.seed(33)
+    index=sample(1:dim(tidy_set)[2],dim(tidy_set)[2],F)
+    
+    val_i=
+      index %>%
+      sample(round(0.2*length(.)),F)
+    
+    train_i=index[!index%in%val_i]
+    
+    steps_per_epoch=ceiling(length(train_i)/batch_size)
+    validation_steps=ceiling(length(val_i)/batch_size)
+    warm_up_steps=ceiling(steps_per_epoch*warm_up)
+    
+    cat('Warm-up: ',warm_up_steps,'steps\n')
+    history=
+      ontonet %>%
+      fit_generator(
+        generator=
+          generator.ontoarray(
+            tidy_set
+            ,train_i
+            ,batch_size=batch_size
+          )
+        ,steps_per_epoch=steps_per_epoch
+        ,validation_data=
+          generator.ontoarray(
+            tidy_set
+            ,val_i
+            ,batch_size=batch_size
+          )
+        ,validation_steps=validation_steps
+        ,epochs=epochs
+        ,callbacks=callback_list
+        ,view_metrics=F
+        ,verbose=0
+      )
+    
+    set.seed(33)
+    steps=ceiling(dim(tidy_set)[2]/dim(tidy_set)[2])
+    evaluation=
+      ontonet %>%
+      lapply(X=1:30,Y=.,Z=tidy_set,function(X,Y,Z){
+        index=sample(1:dim(Z)[2],dim(Z)[2],T)
+        ontonet %>%
+          evaluate_generator(
+            generator=generator.ontoarray(Z,index,batch_size=dim(tidy_set)[2])
+            ,steps=steps
+            ,callbacks=c(
+              callback_lambda(
+                on_test_batch_end=on_test_batch_end_fun
+                ,on_test_end=on_test_end_fun
+              )
+            )
+          )
+      })
+        
+    if(tuning_mode){
+      score=
+        evaluation %>%
+        sapply(function(x)x$root_roc) %>%
+        mean()
+      return(list(Score=score))
+    }else{
+      list(
+        ontonet=ontonet
+        ,early_stopping=cb_early_stopping
+        ,train_index=train_i
+        ,validation_index=val_i
+        ,history=history
+        ,evaluation=evaluation
+      )
+    }
+  }
+}
+```
+
+```{r Conduct hyperparameter tuning for a DI-VNN, include=FALSE}
+lambda=10^seq(-10,-1,len=10)
+if(FALSE){
+  cat('Conduct hyperparameter tuning for DI-VNN model\n')
+  cat('Started:',as.character(now()),'\n')
+    
+    surrogate_model=
+      trainer_generator(
+        set$divnn$output
+        ,epochs=5
+        ,batch_size=8
+        ,warm_up=0.05
+        ,lr=2^-6
+        ,tuning_mode=T
+        ,verbose=1
+      )
+    
+    set$divnn$hyperparameters=list()
+    i=1
+    for(j in seq(i,length(lambda))){
+      set.seed(33)
+      set$divnn$hyperparameters[[j]]=surrogate_model(lambda[j])
+    }
+  
+  rm(i,j)
+  cat('End:',as.character(now()))
+  saveRDS(set$divnn$hyperparameters,'data/divnn_hyperparameters.rds')
+}else{
+  cat(readRDS('data/log.rds')[['divnn_hyperparameters']])
+  set$divnn$hyperparameters=readRDS('data/divnn_hyperparameters.rds')
+}
+```
+
+```{r Find the best DI-VNN hyperparameters, eval=FALSE, include=FALSE}
+set$divnn$hyperparameters %>%
+  sapply(function(x)min(x$Score)) %>%
+  lapply(X=1,Y=.,function(X,Y)which(Y==max(Y,na.rm=T))) %>%
+  .[[1]]
+```
+
+```{r Conduct modeling for a DI-VNN, include=FALSE}
+if(FALSE){
+  cat('Conduct modeling for DI-VNN\n')
+  cat('Started:',as.character(now()),'\n')
+    
+    surrogate_model=
+      trainer_generator(
+        set$divnn$output
+        ,path='data/ontonet'
+        ,epochs=500
+        ,batch_size=8
+        ,warm_up=0.05
+        ,lr=2^-6
+        ,tuning_mode=F
+        ,checkpoint=T
+        ,verbose=1
+      )
+    set.seed(33)
+    set$divnn$modeling=surrogate_model(lambda[9])
+    
+  cat('End:',as.character(now()))
+  save_model_weights_hdf5(set$divnn$modeling$ontonet,'data/ontonet.h5')
+  saveRDS(set$divnn$modeling,'data/divnn_modeling.rds')
+}else{
+  cat(readRDS('data/log.rds')[['divnn_modeling']])
+  set$divnn$modeling=readRDS('data/divnn_modeling.rds')
+  refresh_session()
+  set$divnn$modeling$ontonet=
+    set$divnn$output %>%
+    generator.ontonet(l2_norm=lambda[9]) %>%
+    # readLines('data/ontonet.json') %>%
+    # model_from_json() %>%
+    load_model_weights_hdf5('data/ontonet.h5') %>%
+    compile(
+      optimizer=optimizer_sgd(
+        lr=set$divnn$modeling$history$metrics$lr %>%
+          .[which.max(set$divnn$modeling$history$metrics$val_root_roc)]
+        ,momentum=0.9
+        ,decay=10^-4
+      )
+      ,loss='mean_squared_error'
+      ,loss_weights=c(rep(
+          0.3/(0.3*(length(.$outputs)-1)+1),length(.$outputs)-1)
+          ,1/(0.3*(length(.$outputs)-1)+1)
+        )
+      ,metrics=c(
+          tf$keras$metrics$AUC(name='roc')
+          ,tf$keras$metrics$TruePositives(name='tp')
+          ,tf$keras$metrics$FalseNegatives(name='fn')
+          ,tf$keras$metrics$FalsePositives(name='fp')
+          ,tf$keras$metrics$TrueNegatives(name='tn')
+        )
+    )
+}
+```
+
+```{r Save whole model of DI-VNN, eval=FALSE, include=FALSE}
+save_model_hdf5(set$divnn$modeling$ontonet,'data/entire_ontonet.h5')
+```
+
+```{r Conduct modeling for a pruned DI-VNN, include=FALSE}
+if(FALSE){
+  cat('Conduct modeling for pruned DI-VNN\n')
+  cat('Started:',as.character(now()),'\n')
+    
+    surrogate_model2=
+      trainer_generator(
+        set$divnn$output2
+        ,path='data/ontonet2'
+        ,epochs=500
+        ,batch_size=8
+        ,warm_up=0.05
+        ,lr=2^-6
+        ,tuning_mode=F
+        ,checkpoint=T
+        ,verbose=1
+      )
+    set.seed(33)
+    set$divnn$modeling2=surrogate_model2(lambda[9])
+    
+  cat('End:',as.character(now()))
+  save_model_weights_hdf5(set$divnn$modeling2$ontonet,'data/ontonet2.h5')
+  saveRDS(set$divnn$modeling2,'data/divnn_modeling2.rds')
+}else{
+  cat(readRDS('data/log.rds')[['divnn_modeling2']])
+  set$divnn$modeling2=readRDS('data/divnn_modeling2.rds')
+  refresh_session()
+  set$divnn$modeling2$ontonet=
+    set$divnn$output2 %>%
+    generator.ontonet(l2_norm=lambda[9]) %>%
+    # readLines('data/ontonet.json') %>%
+    # model_from_json() %>%
+    load_model_weights_hdf5('data/ontonet2.h5') %>%
+    compile(
+      optimizer=optimizer_sgd(
+        lr=set$divnn$modeling2$history$metrics$lr %>%
+          .[which.max(set$divnn$modeling2$history$metrics$val_root_roc)]
+        ,momentum=0.9
+        ,decay=10^-4
+      )
+      ,loss='mean_squared_error'
+      ,loss_weights=c(rep(
+          0.3/(0.3*(length(.$outputs)-1)+1),length(.$outputs)-1)
+          ,1/(0.3*(length(.$outputs)-1)+1)
+        )
+      ,metrics=c(
+          tf$keras$metrics$AUC(name='roc')
+          ,tf$keras$metrics$TruePositives(name='tp')
+          ,tf$keras$metrics$FalseNegatives(name='fn')
+          ,tf$keras$metrics$FalsePositives(name='fp')
+          ,tf$keras$metrics$TrueNegatives(name='tn')
+        )
+    )
+}
+```
+
+## Model validation
+
+Data partition was conducted to get both internal and external validation sets. 
+We used participants with ethnicity not from Sulawesi island for the external 
+validation set. This may demonstrate the model robustness to predict the 
+outcome in general population. We also randomly split the remaining set after 
+excluding the external validation set. This provided another external 
+validation set as much as ~20% of the remaining set.
+
+For the first to third models, we applied 10-fold cross validation for
+hyperparameter tuning and 30-times bootstrapping for training the model using
+the best hyperparameters. We also applied 10-fold cross validation to compute
+rotated matrix of PCs. For the fourth model, we applied a hold-out cross
+validation with 80:20 ratio for training and validation sets. For comparing
+this model against others, we applied 30-times bootstrapping to compute the
+predictive performance. To re-calibrate all models using logistic regression, 
+we also applied 30-times bootstrapping.
+
+## Evaluation metrics
+
+We used the area under receiver operating characteristics (ROC) curve as the
+main evaluation metric. This is because the area under ROC was threshold-
+agnostic. But, before evaluating this, we reported calibration metric of a model
+using linear regression in which the predicted probability as the model output
+becoming the only covariate. The modes were considered well calibrated if 95% 
+confidence intervals of intercept and slope respectively covers 0 and 1 with 
+the probability plots visually aligned to the reference line.
+
+```{r Tidy up history of training metrics, include=FALSE}
+set$divnn$modeling$metrics=
+  set$divnn$modeling$history$metrics %>%
+  data.frame() %>%
+  mutate(epoch=seq(nrow(.))) %>%
+  gather(key,value,-epoch) %>%
+  mutate(
+    set=case_when(
+      str_detect(key,'val') & !str_detect(key,'lr')~'val'
+      ,!str_detect(key,'val') & !str_detect(key,'lr')~'train'
+      ,TRUE~'lr'
+    )
+    ,node=
+      case_when(
+        str_detect(key,'ONT') & !str_detect(key,'lr')~'ONT'
+        ,str_detect(key,'root') & !str_detect(key,'lr')~'root'
+        ,str_detect(key,'lr')~'lr'
+        ,TRUE~'total'
+      ) %>%
+      paste0(str_remove_all(key,'[:alpha:]|[:punct:]'))
+    ,key=str_remove_all(key,'root|val|ONT|[:digit:]|[:punct:]')
+  ) %>%
+  select(set,node,everything())
+
+set$divnn$modeling2$metrics=
+  set$divnn$modeling2$history$metrics %>%
+  data.frame() %>%
+  mutate(epoch=seq(nrow(.))) %>%
+  gather(key,value,-epoch) %>%
+  mutate(
+    set=case_when(
+      str_detect(key,'val') & !str_detect(key,'lr')~'val'
+      ,!str_detect(key,'val') & !str_detect(key,'lr')~'train'
+      ,TRUE~'lr'
+    )
+    ,node=
+      case_when(
+        str_detect(key,'ONT') & !str_detect(key,'lr')~'ONT'
+        ,str_detect(key,'root') & !str_detect(key,'lr')~'root'
+        ,str_detect(key,'lr')~'lr'
+        ,TRUE~'total'
+      ) %>%
+      paste0(str_remove_all(key,'[:alpha:]|[:punct:]'))
+    ,key=str_remove_all(key,'root|val|ONT|[:digit:]|[:punct:]')
+  ) %>%
+  select(set,node,everything())
+```
+
+```{r Get predicted probability of DI-VNN, include=FALSE}
+if(FALSE){
+  refresh_session()
+  set$divnn$modeling$prediction=
+    set$divnn$modeling$ontonet %>%
+    predict_generator(
+      generator=
+        generator.ontoarray(
+          set$divnn$output
+          ,seq(ncol(set$divnn$output))
+          ,batch_size=8
+        )
+      ,steps=ceiling(ncol(set$divnn$output)/8)
+      ,verbose=1
+    ) %>%
+    setNames(
+      set$divnn$modeling$history$metrics %>%
+        names() %>%
+        .[str_detect(.,'val_')&str_detect(.,'_loss')&str_detect(.,'ONT|root')] %>%
+        str_remove_all('val_|_loss')
+    )
+  
+  set.seed(33)
+  set$divnn$modeling$prediction=
+    pblapply(X=1:30,function(X){
+      index=sample(seq(ncol(set$divnn$output)),round(0.3*ncol(set$divnn$output)),T)
+      set$divnn$modeling$prediction %>%
+        lapply(function(x){
+          x[index,,drop=F]
+        }) %>%
+        c(list(obs=set$divnn$output$outcome[index],ind=index))
+    })
+  
+  saveRDS(set$divnn$modeling$prediction,'data/divnn_prediction.rds')
+  
+  refresh_session()
+  set$divnn$modeling2$prediction=
+    set$divnn$modeling2$ontonet %>%
+    predict_generator(
+      generator=
+        generator.ontoarray(
+          set$divnn$output2
+          ,seq(ncol(set$divnn$output2))
+          ,batch_size=8
+        )
+      ,steps=ceiling(ncol(set$divnn$output2)/8)
+      ,verbose=1
+    ) %>%
+    setNames(
+      set$divnn$modeling2$history$metrics %>%
+        names() %>%
+        .[str_detect(.,'val_')&str_detect(.,'_loss')&str_detect(.,'ONT|root')] %>%
+        str_remove_all('val_|_loss')
+    )
+  
+  set.seed(33)
+  set$divnn$modeling2$prediction=
+    pblapply(X=1:30,function(X){
+      index=sample(seq(ncol(set$divnn$output2)),round(0.3*ncol(set$divnn$output2)),T)
+      set$divnn$modeling2$prediction %>%
+        lapply(function(x){
+          x[index,,drop=F]
+        }) %>%
+        c(list(obs=set$divnn$output2$outcome[index],ind=index))
+    })
+  
+  saveRDS(set$divnn$modeling2$prediction,'data/divnn2_prediction.rds')
+}else{
+  set$divnn$modeling$prediction=readRDS('data/divnn_prediction.rds')
+  # set$divnn$modeling2$prediction=readRDS('data/divnn2_prediction.rds')
+}
+```
+
+```{r Mimic caret structure for reporting results, include=FALSE}
+model$divnn$results=
+  set$divnn$modeling$evaluation %>%
+  sapply(function(x)x$root_roc) %>%
+  data.frame(root=.) %>%
+  summarize(ROC=mean(root),ROCSD=sd(root))
+
+# model$divnn2$results=
+#   set$divnn$modeling2$evaluation %>%
+#   sapply(function(x)x$root_roc) %>%
+#   data.frame(root=.) %>%
+#   summarize(ROC=mean(root),ROCSD=sd(root))
+```
+
+```{r Mimic caret structure for reporting predicted probability, include=FALSE}
+model$divnn$pred=
+  set$divnn$modeling$prediction %>%
+  lapply(X=seq(length(.)),Y=.,function(X,Y){
+    Y[[X]] %>%
+      lapply(as.numeric) %>%
+      as.data.frame() %>%
+      mutate(b=X)
+  }) %>%
+  do.call(rbind,.) %>%
+  select(root,obs,b,ind) %>%
+  rename(event=root) %>%
+  mutate(obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event')))
+
+# model$divnn2$pred=
+#   set$divnn$modeling2$prediction %>%
+#   lapply(X=seq(length(.)),Y=.,function(X,Y){
+#     Y[[X]] %>%
+#       lapply(as.numeric) %>%
+#       as.data.frame() %>%
+#       mutate(b=X)
+#   }) %>%
+#   do.call(rbind,.) %>%
+#   select(root,obs,b,ind) %>%
+#   rename(event=root) %>%
+#   mutate(obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event')))
+```
+
+Models with and without re-calibration were evaluated (see Model Validation). 
+We chose all models that complied the calibration metric. The best model(s) 
+were the well-calibrated models that significantly outperform others by the 
+area under ROC.
+
+All metrics are reported by 95% confidence interval. A model outperforms others
+if the interval estimate more than the central value of other models. Otherwise,
+more than one models might be selected.
+
+```{r Get predicted probability of training data, include=FALSE}
+set$training_calib=
+  model %>%
+  pblapply(X=names(.) %>% .[!.%in%c('pca','divnn','divnn2')],Y=.,function(X,Y){
+    Y[[X]] %>%
+      predict(Y[[X]]$trainingData,type='prob') %>%
+      cbind(select(Y[[X]]$trainingData,.outcome)) %>%
+      select(event,.outcome) %>%
+      setNames(c('event','obs')) %>%
+      mutate(obs=as.integer(obs=='event'))
+  }) %>%
+  setNames(names(model) %>% .[!.%in%c('pca','divnn','divnn2')])
+
+set$training_calib$divnn=
+  model$divnn$pred %>%
+  select(event,obs) %>%
+  mutate(obs=as.integer(obs=='event'))
+
+# set$training_calib$divnn2=
+#   model$divnn2$pred %>%
+#   select(event,obs) %>%
+#   mutate(obs=as.integer(obs=='event'))
+```
+
+```{r Conduct training for the calibration models, include=FALSE}
+calib_model=
+  model %>%
+  pblapply(
+    X=names(.) %>%
+      .[!.%in%c('pca','pc_elnet')]
+    ,Y=.
+    ,Z=set$training_calib
+    ,function(X,Y,Z){
+    
+    set.seed(33)
+    suppressWarnings(caret::train(
+      obs~event
+      ,data=Z[[X]] %>%
+        mutate(
+          obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event'))
+        )
+      ,method='glm'
+      ,metric='ROC'
+      ,family=binomial(link='logit')
+      ,trControl=
+        trainControl(
+          method='boot'
+          ,number=30
+          ,summaryFunction=twoClassSummary
+          ,classProbs=T
+          ,savePredictions=T
+        )
+    ))
+  }) %>%
+  setNames(names(model) %>% .[!.%in%c('pca','pc_elnet')])
+```
+
+```{r Data partition for internal and external validation, include=FALSE}
+set$int_testing=
+  data_transform(select(proc4[index$test,],-Race),proc5) %>%
+  as.data.frame() %>%
+  .[,c('outcome',predictors$variable)] %>%
+  outcome_balancer()
+
+set$ext_testing=
+  data_transform(
+    select(filter(proc3,Race=='not from sulawesi'),-Race)
+    ,proc5
+  ) %>%
+  as.data.frame() %>%
+  .[,c('outcome',predictors$variable)] %>%
+  outcome_balancer()
+```
+
+```{r Create empty lists for prediction results and model evaluation, include=FALSE}
+pred=list()
+mod_eval=list()
+```
+
+```{r Baseline prediction and evaluation by elnet regression, include=FALSE}
+pred$elnet0=
+  lapply(
+    X=1:3
+    ,Y=set[c('training','int_testing','ext_testing')]
+    ,Z=model
+    ,K=calib_model
+    ,L='elnet'
+    ,function(X,Y,Z,K,L){
+    
+    M=Y[[X]] %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+    
+    set.seed(33)
+    predict(Z[[L]],newdata=M,type='prob') %>%
+      mutate(obs=M$outcome)
+    
+  }) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+mod_eval$elnet0=
+  pred$elnet0 %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+pred$elnet=
+  lapply(
+    X=1:3
+    ,Y=set[c('training','int_testing','ext_testing')]
+    ,Z=model
+    ,K=calib_model
+    ,L='elnet'
+    ,function(X,Y,Z,K,L){
+    
+    M=Y[[X]] %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+    
+    set.seed(33)
+    predict(Z[[L]],newdata=M,type='prob') %>%
+      mutate(obs=M$outcome) %>%
+      predict(K[[L]],newdata=.,type='prob') %>%
+      mutate(obs=M$outcome)
+    
+  }) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+mod_eval$elnet=
+  pred$elnet %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+```
+
+```{r Prediction and evaluation of elnet PC selection, include=FALSE}
+# pred$pc_elnet0=
+#   lapply(
+#     X=1:3
+#     ,Y=set[c('training','int_testing','ext_testing')]
+#     ,Z=model
+#     ,K=calib_model
+#     ,L='pc_elnet'
+#     ,function(X,Y,Z,K,L){
+#     
+#     M=select(Y[[X]],outcome) %>%
+#       cbind(pc_converter(Y[[X]]
+#                          # ,model$elnet
+#                          ,Z$pca
+#                          ,npc=1:max_pc(epv=20))) %>%
+#       mutate(
+#         outcome=
+#           factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+#       )
+#     
+#     set.seed(33)
+#     predict(Z[[L]],newdata=M,type='prob') %>%
+#       mutate(obs=M$outcome)
+#     
+#   }) %>%
+#   setNames(c('training','int_testing','ext_testing'))
+# 
+# mod_eval$pc_elnet0=
+#   pred$pc_elnet0 %>%
+#   lapply(evalm,showplots=F) %>%
+#   setNames(c('training','int_testing','ext_testing'))
+# 
+# pred$pc_elnet=
+#   lapply(
+#     X=1:3
+#     ,Y=set[c('training','int_testing','ext_testing')]
+#     ,Z=model
+#     ,K=calib_model
+#     ,L='pc_elnet'
+#     ,function(X,Y,Z,K,L){
+#     
+#     M=select(Y[[X]],outcome) %>%
+#       cbind(pc_converter(Y[[X]]
+#                          # ,model$elnet
+#                          ,Z$pca
+#                          ,npc=1:max_pc(epv=20))) %>%
+#       mutate(
+#         outcome=
+#           factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+#       )
+#     
+#     set.seed(33)
+#     predict(Z[[L]],newdata=M,type='prob') %>%
+#       predict(K[[L]],newdata=.,type='prob') %>%
+#       mutate(obs=M$outcome)
+#   }) %>%
+#   setNames(c('training','int_testing','ext_testing'))
+# 
+# mod_eval$pc_elnet=
+#   pred$pc_elnet %>%
+#   lapply(evalm,showplots=F) %>%
+#   setNames(c('training','int_testing','ext_testing'))
+```
+
+```{r Prediction and evaluation of random forest, include=FALSE}
+pred$spc_rf0=
+  lapply(
+    X=1:3
+    ,Y=set[c('training','int_testing','ext_testing')]
+    ,Z=model
+    ,K=calib_model
+    ,L='spc_rf'
+    ,function(X,Y,Z,K,L){
+    
+    M=select(Y[[X]],outcome) %>%
+      cbind(pc_converter(Y[[X]]
+                         # ,model$elnet
+                         ,Z$pca
+                         ,npc=1:max_pc(epv=20))) %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+    
+    set.seed(33)
+    predict(Z[[L]],newdata=M,type='prob') %>%
+      mutate(obs=M$outcome)
+    
+  }) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+mod_eval$spc_rf0=
+  pred$spc_rf0 %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+pred$spc_rf=
+  lapply(
+    X=1:3
+    ,Y=set[c('training','int_testing','ext_testing')]
+    ,Z=model
+    ,K=calib_model
+    ,L='spc_rf'
+    ,function(X,Y,Z,K,L){
+    
+    M=select(Y[[X]],outcome) %>%
+      cbind(pc_converter(Y[[X]]
+                         # ,model$elnet
+                         ,Z$pca
+                         ,npc=1:max_pc(epv=20))) %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+    
+    set.seed(33)
+    predict(Z[[L]],newdata=M,type='prob') %>%
+      predict(K[[L]],newdata=.,type='prob') %>%
+      mutate(obs=M$outcome)
+  }) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+mod_eval$spc_rf=
+  pred$spc_rf %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+```
+
+```{r Prediction and evaluation of gradient boosting machine, include=FALSE}
+pred$spc_gbm0=
+  lapply(
+    X=1:3
+    ,Y=set[c('training','int_testing','ext_testing')]
+    ,Z=model
+    ,K=calib_model
+    ,L='spc_gbm'
+    ,function(X,Y,Z,K,L){
+    
+    M=select(Y[[X]],outcome) %>%
+      cbind(pc_converter(Y[[X]]
+                         # ,model$elnet
+                         ,Z$pca
+                         ,npc=1:max_pc(epv=20))) %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+    
+    set.seed(33)
+    predict(Z[[L]],newdata=M,type='prob') %>%
+      mutate(obs=M$outcome)
+  }) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+mod_eval$spc_gbm0=
+  pred$spc_gbm0 %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+pred$spc_gbm=
+  lapply(
+    X=1:3
+    ,Y=set[c('training','int_testing','ext_testing')]
+    ,Z=model
+    ,K=calib_model
+    ,L='spc_gbm'
+    ,function(X,Y,Z,K,L){
+    
+    M=select(Y[[X]],outcome) %>%
+      cbind(pc_converter(Y[[X]]
+                         # ,model$elnet
+                         ,Z$pca
+                         ,npc=1:max_pc(epv=20))) %>%
+      mutate(
+        outcome=
+          factor(ifelse(outcome==1,'event','non_event'),c('non_event','event'))
+      )
+    
+    set.seed(33)
+    predict(Z[[L]],newdata=M,type='prob') %>%
+      predict(K[[L]],newdata=.,type='prob') %>%
+      mutate(obs=M$outcome)
+  }) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+mod_eval$spc_gbm=
+  pred$spc_gbm %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+```
+
+```{r Save SPC_GBM calobrator, eval=FALSE, include=FALSE}
+saveRDS(calib_model$spc_gbm,'data/calib_spc_gbm.rds')
+```
+
+```{r Create a function to transform test data for DI-VNN input, include=FALSE}
+test_transformer=function(test_data
+                          ,SGD1bit_fit
+                          ,similarity
+                          ,mapping
+                          ,ontology
+                          ,ranked=T
+                          ,dims=7
+                          ,decreasing=F
+                          ,seed_num=33){
+  
+  predictor=rownames(similarity)
+  
+  SGD1bit_thres=
+    SGD1bit_fit[predictor,] %>%
+    .$AveExpr
+  
+  testing=list()
+  testing$value=
+    test_data %>%
+    .[,predictor] %>%
+    t() %>%
+    normalize.quantiles.use.target(SGD1bit_thres) %>%
+    t()
+  
+  testing$value=
+    testing$value %>%
+    sweep(2,SGD1bit_thres,'-') %>%
+    pbsapply(function(x){ifelse(x==0,0,ifelse(x>0,1,-1))}) %>%
+    matrix(ncol=length(predictor),byrow=FALSE,dimnames=list(NULL,predictor))
+  
+  testing$value=
+    testing$value %>%
+    as.data.frame() %>%
+    `rownames<-`(paste0('I',1:nrow(.)))
+  
+  testing$outcome=
+    test_data$outcome %>%
+    setNames(rownames(testing$value))
+  
+  testing$similarity=similarity
+  testing$mapping=mapping
+  testing$ontology=ontology
+  
+  TidySet.compile(
+      value=testing$value
+      ,outcome=testing$outcome
+      ,similarity=testing$similarity
+      ,mapping=testing$mapping
+      ,ontology=testing$ontology
+      ,ranked=T
+      ,dims=7
+      ,decreasing=F
+      ,seed_num=33
+    )
+  
+}
+
+if(FALSE){
+  set$divnn$evaluation=
+    set[c('training','int_testing','ext_testing')] %>%
+    lapply(function(x){
+      x %>%
+        cbind(pc_converter(x
+                           # ,model$elnet
+                           ,model$pca))
+    }) %>%
+    lapply(
+      FUN=test_transformer
+      ,SGD1bit_fit=set$divnn$fit
+      ,similarity=set$divnn$input$similarity
+      ,mapping=set$divnn$input$mapping
+      ,ontology=set$divnn$input$ontology
+    )
+  
+  saveRDS(set$divnn$evaluation,'data/divnn_evaluation.rds')
+  
+  set$divnn2$evaluation=
+    set[c('training','int_testing','ext_testing')] %>%
+    lapply(function(x){
+      x %>%
+        cbind(pc_converter(x
+                           # ,model$elnet
+                           ,model$pca))
+    }) %>%
+    lapply(
+      FUN=test_transformer
+      ,SGD1bit_fit=set$divnn$fit
+      ,similarity=set$divnn$input$similarity
+      ,mapping=set$divnn$input$mapping
+      ,ontology=
+        set$divnn$input$ontology %>%
+        filter(target%in%c('ONT:20','ONT:24','ONT:22','ONT:25')) %>%
+        filter(
+          (target!='ONT:24') |
+          (target=='ONT:24' & source=='ONT:20')
+        ) %>%
+        filter(
+          (target!='ONT:25') |
+          (target=='ONT:25' & source%in%c('ONT:22','ONT:24'))
+        )
+    )
+  
+  saveRDS(set$divnn2$evaluation,'data/divnn2_evaluation.rds')
+}else{
+  set$divnn$evaluation=readRDS('data/divnn_evaluation.rds')
+  # set$divnn2$evaluation=readRDS('data/divnn2_evaluation.rds')
+}
+```
+
+```{r Prediction and evaluation of DI-VNN, include=FALSE}
+if(FALSE){
+  pred$divnn0=
+    lapply(X=1:3,Y=set$divnn$evaluation,Z=set$divnn$modeling,K=calib_model,L='divnn',function(X,Y,Z,K,L){
+      M=Z$ontonet %>%
+        predict_generator(
+          generator=
+            generator.ontoarray(
+              Y[[X]]
+              ,seq(ncol(Y[[X]]))
+              ,batch_size=4
+            )
+          ,steps=ceiling(ncol(Y[[X]])/4)
+          ,verbose=1
+        ) %>%
+        setNames(
+          Z$history$metrics %>%
+            names() %>%
+            .[str_detect(.,'val_')&str_detect(.,'_loss')&str_detect(.,'ONT|root')] %>%
+            str_remove_all('val_|_loss')
+        )
+      
+      N=length(M$root) %>%
+        seq() %>%
+        sapply(function(x){
+          y=as.numeric(ncol(Y[[X]]))
+          while(x>y) x=x-y
+          x
+        })
+    
+      set.seed(33)
+      M %>%
+        lapply(as.numeric) %>%
+        as.data.frame() %>%
+        select(root) %>%
+        rename(event=root) %>%
+        mutate(
+          obs=Y[[X]]$outcome[N]
+          ,obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event'))
+        ) %>%
+        mutate(non_event=event) %>%
+        select(non_event,event,obs)
+    }) %>%
+    setNames(c('training','int_testing','ext_testing'))
+  
+  saveRDS(pred$divnn0,'data/pred_divnn0.rds')
+}else{
+  pred$divnn0=readRDS('data/pred_divnn0.rds')
+}
+
+mod_eval$divnn0=
+  pred$divnn0 %>%
+  pblapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+if(FALSE){
+  pred$divnn=
+    lapply(X=1:3,Y=set$divnn$evaluation,Z=set$divnn$modeling,K=calib_model,L='divnn',function(X,Y,Z,K,L){
+      M=Z$ontonet %>%
+        predict_generator(
+          generator=
+            generator.ontoarray(
+              Y[[X]]
+              ,seq(ncol(Y[[X]]))
+              ,batch_size=4
+            )
+          ,steps=ceiling(ncol(Y[[X]])/4)
+          ,verbose=1
+        ) %>%
+        setNames(
+          Z$history$metrics %>%
+            names() %>%
+            .[str_detect(.,'val_')&str_detect(.,'_loss')&str_detect(.,'ONT|root')] %>%
+            str_remove_all('val_|_loss')
+        )
+      
+      N=length(M$root) %>%
+        seq() %>%
+        sapply(function(x){
+          y=as.numeric(ncol(Y[[X]]))
+          while(x>y) x=x-y
+          x
+        })
+    
+      set.seed(33)
+      M %>%
+        lapply(as.numeric) %>%
+        as.data.frame() %>%
+        select(root) %>%
+        rename(event=root) %>%
+        predict(K[[L]],newdata=.,type='prob') %>%
+        mutate(
+          obs=Y[[X]]$outcome[N]
+          ,obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event'))
+        )
+    }) %>%
+    setNames(c('training','int_testing','ext_testing'))
+  
+  saveRDS(pred$divnn,'data/pred_divnn.rds')
+}else{
+  pred$divnn=readRDS('data/pred_divnn.rds')
+}
+
+mod_eval$divnn=
+  pred$divnn %>%
+  lapply(evalm,showplots=F) %>%
+  setNames(c('training','int_testing','ext_testing'))
+
+if(FALSE){
+  pred$divnn20=
+    lapply(X=1:3,Y=set$divnn2$evaluation,Z=set$divnn$modeling2,K=calib_model,L='divnn2',function(X,Y,Z,K,L){
+      M=Z$ontonet %>%
+        predict_generator(
+          generator=
+            generator.ontoarray(
+              Y[[X]]
+              ,seq(ncol(Y[[X]]))
+              ,batch_size=4
+            )
+          ,steps=ceiling(ncol(Y[[X]])/4)
+          ,verbose=1
+        ) %>%
+        setNames(
+          Z$history$metrics %>%
+            names() %>%
+            .[str_detect(.,'val_')&str_detect(.,'_loss')&str_detect(.,'ONT|root')] %>%
+            str_remove_all('val_|_loss')
+        )
+      
+      N=length(M$root) %>%
+        seq() %>%
+        sapply(function(x){
+          y=as.numeric(ncol(Y[[X]]))
+          while(x>y) x=x-y
+          x
+        })
+    
+      set.seed(33)
+      M %>%
+        lapply(as.numeric) %>%
+        as.data.frame() %>%
+        select(root) %>%
+        rename(event=root) %>%
+        mutate(
+          obs=Y[[X]]$outcome[N]
+          ,obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event'))
+        ) %>%
+        mutate(non_event=event) %>%
+        select(non_event,event,obs)
+    }) %>%
+    setNames(c('training','int_testing','ext_testing'))
+  
+  saveRDS(pred$divnn20,'data/pred_divnn20.rds')
+}else{
+  # pred$divnn20=readRDS('data/pred_divnn20.rds')
+}
+
+# mod_eval$divnn20=
+#   pred$divnn20 %>%
+#   pblapply(evalm,showplots=F) %>%
+#   setNames(c('training','int_testing','ext_testing'))
+
+if(FALSE){
+  pred$divnn2=
+    lapply(X=1:3,Y=set$divnn2$evaluation,Z=set$divnn$modeling2,K=calib_model,L='divnn2',function(X,Y,Z,K,L){
+      M=Z$ontonet %>%
+        predict_generator(
+          generator=
+            generator.ontoarray(
+              Y[[X]]
+              ,seq(ncol(Y[[X]]))
+              ,batch_size=4
+            )
+          ,steps=ceiling(ncol(Y[[X]])/4)
+          ,verbose=1
+        ) %>%
+        setNames(
+          Z$history$metrics %>%
+            names() %>%
+            .[str_detect(.,'val_')&str_detect(.,'_loss')&str_detect(.,'ONT|root')] %>%
+            str_remove_all('val_|_loss')
+        )
+      
+      N=length(M$root) %>%
+        seq() %>%
+        sapply(function(x){
+          y=as.numeric(ncol(Y[[X]]))
+          while(x>y) x=x-y
+          x
+        })
+    
+      set.seed(33)
+      M %>%
+        lapply(as.numeric) %>%
+        as.data.frame() %>%
+        select(root) %>%
+        rename(event=root) %>%
+        predict(K[[L]],newdata=.,type='prob') %>%
+        mutate(
+          obs=Y[[X]]$outcome[N]
+          ,obs=factor(ifelse(obs==1,'event','non_event'),c('non_event','event'))
+        )
+    }) %>%
+    setNames(c('training','int_testing','ext_testing'))
+  
+  saveRDS(pred$divnn2,'data/pred_divnn2.rds')
+}else{
+  # pred$divnn2=readRDS('data/pred_divnn2.rds')
+}
+
+# mod_eval$divnn2=
+#   pred$divnn2 %>%
+#   lapply(evalm,showplots=F) %>%
+#   setNames(c('training','int_testing','ext_testing'))
+```
+
+
+# Results
+
+## Subject characteristics
+
+We have developed four diagnostic prediction models using a cross-sectional 
+dataset (n=1,252). These models have been externally validated (n=129) with 
+non-local ethnicity unobserved in the development sets (Table 1). The model 
+validation may be challenging since the depression prevalence estimate in the 
+validation set was different to those in the development sets.
+
+```{r table-1, echo=FALSE}
+index %>%
+  sapply(function(x){
+    table(proc4[x,'outcome'])
+  }) %>%
+  cbind(
+    proc3 %>%
+      filter(Race=='not from sulawesi') %>%
+      group_by(outcome) %>%
+      summarize(external=n()) %>%
+      column_to_rownames(var='outcome') %>%
+      as.matrix()
+  ) %>%
+  as.data.frame() %>%
+  select(train,test,everything()) %>%
+  t() %>%
+  as.data.frame() %>%
+  rbind(
+    .[c(1,2,4),] %>%
+      summarize_all(sum)
+  ) %>%
+  mutate(
+    total=`0`+`1`
+    ,prevalence=`1`/total*100
+  ) %>%
+  setNames(c('GDS-15 (-)','GDS-15 (+)','Total','Prevalence (%)')) %>%
+  `rownames<-`(c(
+    'Training set','Testing set'
+    ,'Model development (training and testing sets)'
+    ,'Model validation (non-local ethnicity)'
+    ,'Total (model development and validation)'
+  )) %>%
+  rownames_to_column(var='Data partition') %>%
+  knitr::kable(
+    format='latex'
+    ,caption='Depression prevalence in the data source by data partition'
+    ,digits=2
+    ,format.args=list(big.mark=',')
+  ) %>%
+  kableExtra::kable_classic(latex_options="HOLD_position") %>%
+  kableExtra::add_footnote(
+    c('GDS-15, 15-item geriatric depression scale')
+    ,notation='none'
+  ) %>%
+  kableExtra::column_spec(1:5,extra_css = "vertical- align:top;")
+```
+
+The prevalence estimates of depression in older adults were different among 
+ethnicities (Table 2). The Tolaki ethnicity was one with the highest 
+prevalence. Similar prevalences were found between the Bugis-Makasar and Buton 
+ethnicities. Only one local ethinicity was similar to those not from Sulawesi 
+island in term of the depression prevalence estimate, which is the Muna 
+ethnicity. Both the Bugis-Makasar and the Tolaki ethnicity were considered the 
+majority of community-dwelling elders in our dataset.
+
+```{r table-2, echo=FALSE}
+set.seed(33)
+proc3 %>%
+  group_by(outcome,Race) %>%
+  summarize(n=n()) %>%
+  spread(outcome,n) %>%
+  mutate(subtotal=`0`+`1`) %>%
+  mutate(
+    total=sum(subtotal)
+    ,p=subtotal/total
+  ) %>%
+  left_join(
+    lapply(X=seq(30),Y=proc3,function(X,Y){
+        group_by(Y,Race) %>%
+          summarize(outcome=mean(sample(outcome,n(),T))) %>%
+          mutate(b=X)
+      }) %>%
+      do.call(rbind,.) %>%
+      group_by(Race) %>%
+      summarize(
+        depression=mean(outcome)
+        ,lb=mean(outcome)-qnorm(0.975)*sd(outcome)/sqrt(n())
+        ,ub=mean(outcome)+qnorm(0.975)*sd(outcome)/sqrt(n())
+      )
+    ,by='Race'
+  ) %>%
+  mutate(Race=str_to_sentence(Race)) %>%
+  mutate(Race=ifelse(Race=='Bugismksr','Bugis-Makasar',Race)) %>%
+  mutate(
+    proportion=paste0(round(subtotal/total*100,2),'%')
+    ,prevalence=
+      paste0(
+        round(depression*100,2),'% '
+        ,'(',round(lb*100,2),' to ',round(ub*100,2),')')
+  ) %>%
+  arrange(desc(depression)) %>%
+  select(-total,-p,-depression,-lb,-ub) %>%
+  left_join(
+    proc3 %>%
+      select(Race,outcome) %>%
+      mutate(
+        Race=
+          Race %>%
+          factor(c('not from sulawesi','tolaki','bugismksr','buton','muna'))
+        ,outcome=
+          outcome %>%
+          factor(c(0,1))
+      ) %>%
+      glm(outcome~Race,data=.,family=binomial(link='logit')) %>%
+      tidy() %>%
+      filter(term!='(Intercept)') %>%
+      mutate(term=str_remove_all(term,'Race')) %>%
+      select(term,p.value) %>%
+      rename(Race=term) %>%
+      mutate(Race=str_to_sentence(Race)) %>%
+      mutate(Race=ifelse(Race=='Bugismksr','Bugis-Makasar',Race))
+    ,by='Race'
+  ) %>%
+  mutate(
+    p.value=ifelse(is.na(p.value),'(reference)',p.value)
+    ,p.value=suppressWarnings(round(as.numeric(p.value),3))
+    ,p.value=ifelse(p.value<0.05,paste0(p.value,'*'),p.value)
+  ) %>%
+  rename(
+    Ethnicity=Race
+    ,`GDS-15 (-)`=`0`
+    ,`GDS-15 (+)`=`1`
+    ,Total=subtotal
+    ,`Proportion (n=1,381)`=proportion
+    ,`Prevalence (95% CI)`=prevalence
+    ,`p-value`=p.value
+  ) %>%
+  knitr::kable(
+    format='latex'
+    ,caption='Estimate of depression prevalence by ethnicity'
+  ) %>%
+  kableExtra::kable_classic(latex_options="HOLD_position") %>%
+  kableExtra::add_footnote(
+    c('GDS-15, 15-item geriatric depression scale'
+      ,'95% CI is estimated by 30-times bootstrapping')
+    ,notation="none"
+  ) %>%
+  kableExtra::column_spec(1:6,extra_css = "vertical- align:top;")
+```
+
+We only used training set to develop the models. This will have the similar 
+notion as if the prediction model is developed and validated under different 
+studies. Yet, we  need to identify characteristics of dataset we used for 
+training the prediction models (Table 3). Future use of our models will likely 
+benefit those with similar characteristics, particularly in predictors used in 
+the final model.
+
+As intended, our models are developed for older adults aged 60 years old or 
+above. This characterizes the elders as reasonably having comorbidity and poor 
+health condition, hearing, oral status, and visual function, which are 
+considerably higher to those of younger adults. However, in all of those 
+categorical variables (excluding comorbidity), the majority was in a fair 
+health conditions, probably because these subjects routinely visited CHC up to 
+9 or 10 years in average. Most of the subjects did not pursue university 
+education. They have 2 to 6 children, mostly not separated/divorced, and live 
+with spouse and/or other family members in majority, albeit they are unemployed 
+and their income are considerably low in this country. Most of the subjects, if 
+not all, are religious believers.
+
+We can see similar characteristics between GDS-15 positives and negatives. No 
+association test is conducted for this cross-sectional study. But, one may 
+identify opposite proportions in several categorical predictors for GDS-15 
+positives compared to GDS-15 negatives. These are unemployment before old age 
+(51.72% vs. 41.48%) and living alone (8.37% vs. 4.07%). Characteristics of 
+other predictors are not easily differentiated between two groups.
+
+```{r table-3, echo=FALSE}
+train_set_desc=
+  proc3 %>%
+  rownames_to_column(var='id') %>%
+  mutate(Race=ifelse(Race=='not from sulawesi','External validation','Internal validation')) %>%
+  rename(Set=Race) %>%
+  mutate(
+    Set=ifelse(
+      Set=='External validation'
+      ,Set
+      ,ifelse(id %in% index$train,'Train set','Test Set')
+    )
+  ) %>%
+  column_to_rownames(var='id') %>%
+  filter(Set=='Train set') %>%
+  select(-Set)
+
+train_set_sig=
+  train_set_desc %>%
+  rownames_to_column(var='id') %>%
+  gather(variable,value,-id) %>%
+  mutate(
+    variable=ifelse(str_detect(variable,'\\.'),variable,paste0(variable,'.'))
+  ) %>%
+  separate(variable,c('variable','value2'),sep='\\.') %>%
+  filter(
+    value2==''
+    |
+    (value2!='' & value==1)
+  ) %>%
+  mutate(
+    value=ifelse(value2=='',value,value2)
+  ) %>%
+  select(-value2) %>%
+  spread(variable,value) %>%
+  lapply(X=seq(ncol(.)),Y=.,Z=names(.),function(X,Y,Z){
+    if(
+      Z[X]
+      %in% c('Age','Comorbidity','Income','Medication'
+             ,'NumberOfChildren','VisitCHCTmsYears')
+    ){
+      mutate_all(Y[,X,drop=F],as.numeric)
+    }else{
+      Y[,X,drop=F]
+    }
+  }) %>%
+  do.call(cbind,.) %>%
+  select(
+    id,outcome
+    ,Age,Comorbidity,Income,Medication,NumberOfChildren,VisitCHCTmsYears
+    ,EduLevel,EmployeBefore,EmployedNow,Gender,HealthCondition,HearingProblem
+    ,LivingStatus,MaritalStatus,OralStatus,Religion,VisualProblem
+  ) %>%
+  mutate(
+    outcome=
+      outcome %>%
+      factor(c(0,1))
+    ,EduLevel=
+      EduLevel %>%
+      factor(c('primary',unique(.) %>% .[.!='primary']))
+    ,EmployeBefore=
+      EmployeBefore %>%
+      factor(c('1','0'))
+    ,EmployedNow=
+      EmployedNow %>%
+      factor(c('0','1'))
+    ,Gender=
+      Gender %>%
+      factor(c('female','male'))
+    ,HearingProblem=
+      HearingProblem %>%
+      factor(c('0','1'))
+    ,LivingStatus=
+      LivingStatus %>%
+      factor(
+        c('livingwithspouseotherfamilymembers'
+          ,unique(.) %>% .[.!='livingwithspouseotherfamilymembers'])
+      )
+    ,MaritalStatus=
+      MaritalStatus %>%
+      factor(c('married',unique(.) %>% .[.!='married']))
+    ,OralStatus=
+      OralStatus %>%
+      factor(c('fair',unique(.) %>% .[.!='fair']))
+    ,Religion=
+      Religion %>%
+      factor(c('moslem',unique(.) %>% .[.!='moslem']))
+    ,VisualProblem=
+      VisualProblem %>%
+      factor(c('1','0',NA))
+  ) %>%
+  column_to_rownames(var='id') %>%
+  lapply(X=colnames(.)[2:ncol(.)],Y=.,function(X,Y){
+    Y[,c('outcome',X)] %>%
+      glm(outcome~.,data=.,family=binomial(link='logit')) %>%
+      tidy() %>%
+      filter(term!='(Intercept)') %>%
+      select(term,p.value) %>%
+      mutate(covariate=X)
+  }) %>%
+  do.call(rbind,.) %>%
+  mutate(
+    term=
+      ifelse(
+        term==covariate
+        ,''
+        ,str_remove_all(term,covariate)
+      )
+  ) %>%
+  select(covariate,everything()) %>%
+  mutate(
+    p.value=ifelse(is.na(p.value),'(reference)',p.value)
+    ,p.value=suppressWarnings(round(as.numeric(p.value),3))
+    ,p.value=ifelse(p.value<0.05,paste0(p.value,'*'),p.value)
+  ) %>%
+  mutate(
+    term=
+      ifelse(
+        term=='0'
+        ,'no'
+        ,ifelse(
+          term=='1'
+          ,'yes'
+          ,term
+        )
+      )
+  )
+
+train_set_desc %>%
+  lapply(X=1:3,Y=.,function(X,Y){
+    if(X==1){
+      Y %>%
+        select_at(
+          c('outcome','Age','Comorbidity','Income','Medication'
+            ,'NumberOfChildren','VisitCHCTmsYears')
+        ) %>%
+        group_by(outcome) %>%
+        lapply(X=1:2,Y=c(mean,sd),Z=.,function(X,Y,Z){
+          summarize_all(Z,Y[X]) %>%
+            gather(key,value,-outcome) %>%
+            mutate(value=round(value,0)) %>%
+            setNames(c('outcome','key',ifelse(X==1,'mean','SD')))
+        }) %>%
+        lapply(X=1,Y=.,function(X,Y){
+          left_join(Y[[1]],Y[[2]],by=c('outcome','key'))
+        }) %>%
+        .[[1]] %>%
+        mutate(mean=format(mean,big.mark=',')) %>%
+        mutate(SD=format(SD,big.mark=',')) %>%
+        unite(value,mean,SD,sep=' (±') %>%
+        mutate(value=paste0(value,')')) %>%
+        spread(outcome,value) %>%
+        setNames(c('Variable','Depression test (-)','Depression test (+)')) %>%
+        left_join(
+          train_set_sig %>%
+            select(-term) %>%
+            rename(Variable=covariate)
+          ,by='Variable'
+        ) %>%
+        mutate(
+          p.value=ifelse(is.na(p.value),'(reference)',p.value)
+        ) %>%
+        mutate(
+          Variable=case_when(
+            Variable=='Age'~'Age (year)'
+            ,Variable=='Comorbidity'~'Number of comorbidity'
+            ,Variable=='Income'~'Income (IDR)'
+            ,Variable=='Medication'~'Number of medication'
+            ,Variable=='NumberOfChildren'~'Number of child'
+            ,Variable=='VisitCHCTmsYears'~'Duration of routine visit in CHC (year)'
+            ,TRUE~Variable
+          )
+        ) %>%
+        rename(key1=Variable) %>%
+        mutate(key2='') %>%
+        select(key1,key2,everything())
+    }else if(X==2){
+      Y %>%
+        select_at(
+          colnames(.)  %>%
+            .[!.%in%
+              c('Age','Comorbidity','Income','Medication'
+                ,'NumberOfChildren','VisitCHCTmsYears')]
+        ) %>%
+        rename_at(
+          c('EmployedNow','EmployeBefore','HearingProblem','VisualProblem')
+          ,function(x)paste0(x,'.yes')
+        ) %>%
+        mutate(
+          EmployedNow.no=ifelse(EmployedNow.yes==1,0,1)
+          ,EmployeBefore.no=ifelse(EmployeBefore.yes==1,0,1)
+          ,HearingProblem.no=ifelse(HearingProblem.yes==1,0,1)
+          ,VisualProblem.no=ifelse(is.na(VisualProblem.yes),0,
+                            ifelse(VisualProblem.yes==1,0,1))
+          ,VisualProblem.NA=ifelse(is.na(VisualProblem.yes),1,0)
+          ,VisualProblem.yes=ifelse(is.na(VisualProblem.yes),0,VisualProblem.yes)
+        ) %>%
+        group_by(outcome) %>%
+        summarize_all(sum,na.rm=T) %>%
+        gather(key,value,-outcome) %>%
+        spread(outcome,value) %>%
+        separate(key,c('key1','key2'),sep='\\.') %>%
+        group_by(key1) %>%
+        mutate(
+          `%0`=round(`0`/sum(`0`)*100,2)
+          ,`%1`=round(`1`/sum(`1`)*100,2)
+        ) %>%
+        arrange(factor(key1,unique(key1)),desc(`%0`),desc(`%1`)) %>%
+        unite(`Depression test (-)`,c('0','%0'),sep=' (') %>%
+        unite(`Depression test (+)`,c('1','%1'),sep=' (') %>%
+        mutate(
+          `Depression test (-)`=paste0(`Depression test (-)`,'%)')
+          ,`Depression test (+)`=paste0(`Depression test (+)`,'%)')
+        ) %>%
+        left_join(
+          train_set_sig %>%
+            rename(key1=covariate,key2=term)
+          ,by=c('key1','key2')
+        ) %>%
+        mutate(
+          p.value=
+            ifelse(
+              is.na(p.value) & (
+                key2!='NA'
+                &
+                key2!='hindu'
+              )
+              ,'(reference)'
+              ,p.value
+            )
+        ) %>%
+        mutate(
+          key1=case_when(
+            key1=='EduLevel'~'Education'
+            ,key1=='EmployeBefore'~'Employed before'
+            ,key1=='EmployedNow'~'Employed now'
+            ,key1=='HealthCondition'~'Health condition'
+            ,key1=='HearingProblem'~'Hearing problem'
+            ,key1=='LivingStatus'~'Living status'
+            ,key1=='MaritalStatus'~'Marital status'
+            ,key1=='OralStatus'~'Oral status'
+            ,key1=='VisualProblem'~'Visual problem'
+            ,TRUE~key1
+          )
+        ) %>%
+        mutate(
+          key2=case_when(
+            key2=='highschool'~'high school'
+            ,key2=='verygood'~'very good'
+            ,key2=='verypoor'~'very poor'
+            ,key2=='livingalone'~'living alone'
+            ,key2=='livingwithfamilymemberswithoutspouse'~'living with family members but without spouse'
+            ,key2=='livingwithspouseonly'~'living with spouse only'
+            ,key2=='livingwithspouseotherfamilymembers'~'living with spouse and other family members'
+            ,key2=='separateddivorced'~'separated/divorced'
+            ,TRUE~key2
+          )
+        ) %>%
+        mutate(key2=ifelse(key2=='NA','Missing',str_to_sentence(key2))) %>%
+        lapply(X=seq(nrow(.)),Y=.,function(X,Y){
+          if(X>1){
+            if(Y$key1[X]==Y$key1[X-1]) Y$key1[X]=''
+          }
+          Y[X,]
+        }) %>%
+        do.call(rbind,.)
+    }else{
+      Y %>%
+        select(outcome) %>%
+        rownames_to_column(var='id') %>%
+        mutate(value=1) %>%
+        spread(outcome,value,fill=0) %>%
+        column_to_rownames(var='id') %>%
+        summarize_all(sum) %>%
+        mutate(`01`=`0`+`1`) %>%
+        mutate(
+          `Depression test (-)`=paste0(`0`,'/',`01`,' (',round(`0`/`01`*100,2),'%)')
+          ,`Depression test (+)`=paste0(`1`,'/',`01`,' (',round(`1`/`01`*100,2),'%)')
+        ) %>%
+        select(-`0`,-`1`,-`01`) %>%
+        mutate(key1='Variable',key2='') %>%
+        select(key1,key2,everything()) %>%
+        mutate(
+          # `Depression test (-)`=paste0('Depression test (-) n=',`Depression test (-)`)
+          # ,`Depression test (+)`=paste0('Depression test (+) n=',`Depression test (+)`)
+          `Depression test (-)`='GDS-15 (-)'
+          ,`Depression test (+)`='GDS-15 (+)'
+        )
+    }
+  }) %>%
+  lapply(X=1,Y=.,function(X,Y){
+    rbind(Y[[1]],Y[[2]]) %>%
+      setNames(c(Y[[3]][1,],'p-value'))
+  }) %>%
+  .[[1]] %>%
+  knitr::kable(
+    format='html'
+    ,caption='Characteristics of training set'
+  ) %>%
+  kableExtra::kable_classic(latex_options="HOLD_position") %>%
+  kableExtra::add_footnote(
+    c('* p-value <0.05; 95% CI is estimated by 30-times bootstrapping. '
+      ,'GDS-15, geriatric depression scale; NA, not applicable')
+    ,notation='none'
+  ) %>%
+  kableExtra::column_spec(1:4,extra_css = "vertical- align:top;") %>%
+  kableExtra::column_spec(1,width='10em') %>%
+  kableExtra::column_spec(2,width='12em')
+```
+
+## The best prediction model
+
+We applied binarization on categorical variables of 17 predictors resulting 
+37 predictors without perfect separation problem in training set. We used these 
+predictors to develop an LR model with regularization. To pursue 20 events per 
+variable, only top 19 PCs were retained for feature selection by a 
+multivariable logistic regression. These PCs accounted for 81.7% of variance 
+explained (95% CI 81.68 to 81.72).
+
+```{r Percent explained variance of 19 PCs, eval=FALSE, include=FALSE}
+model$pca %>%
+  sapply(X=seq(length(.)),Y=.,function(X,Y){
+    cum_pve=cumsum(Y[[X]]$prcomp$sdev^2/sum(Y[[X]]$prcomp$sdev^2))
+    cum_pve[seq(max_pc(20))] %>% max()
+  }) %>%
+  lapply(X=1,Y=.,function(X,Y){
+    data.frame(
+        mean=mean(Y)
+        ,lb=mean(Y)-qnorm(0.975)*sd(Y)/length(Y)
+        ,ub=mean(Y)+qnorm(0.975)*sd(Y)/length(Y)
+      ) %>%
+      mutate_all(function(x)round(x*100,3))
+  }) %>%
+  .[[1]] %>%
+  lapply(X=1,Y=.,function(X,Y){
+    paste0('Percent explained variance of 19 PCs (10-fold cross validation):\n'
+           ,Y$mean,'% (95% CI ',Y$lb,' to ',Y$ub,')')
+  }) %>%
+  .[[1]] %>%
+  cat()
+```
+
+```{r Check predictor-to-PC matrix of weights, eval=FALSE, include=FALSE}
+model$pca %>%
+  lapply(X=seq(length(.)),Y=.,function(X,Y){
+    as.data.frame(Y[[X]]$prcomp$rotation[,1:max_pc(epv=20)]) %>%
+      rownames_to_column(var='predictor')
+  }) %>%
+  do.call(rbind,.) %>%
+  group_by(predictor) %>%
+  summarize_all(function(x)mean(x,na.rm=T)) %>%
+  ungroup() %>%
+  filter(predictor %in% colnames(set$training)) %>%
+  column_to_rownames(var='predictor') %>%
+  knitr::kable() %>%
+  kableExtra::kable_classic()
+```
+
+Furthermore, we only used 7 selected PCs for model development by RF and GBM 
+algorithms to pursue >50 events per variable. These were used for the 
+selected-PCs random forest (SPC-RF) and gradient boosting machine (SPC-GBM) 
+models. Meanwhile, of 17 predictors and 37 PCs for DI-VNN, only 18 of them have 
+FDR <0.05 by differential analysis with Benjamini-Hochberg correction.
+
+```{r Check the largest absolute weights, eval=FALSE, include=FALSE}
+set$selected_pc %>%
+  knitr::kable() %>%
+  kableExtra::kable_classic()
+```
+
+We compared calibration metric and plots of these models with and without 
+re-calibration (Figure 1). Only two models were well-calibrated. These were 
+SPC-GBM with re-calibration and DI-VNN without re-calibration. The LR model was 
+visually aligned after re-calibration but 95% CI of the calibration intercept 
+did not cover 0. The SPC-RF without re-calibration also did not cover 1 by 95% 
+CI of the calibration slope, while re-calibrating this model resulted a 
+dichotomous probability that reduces its clinical utility. Neither calibration 
+intercept nor slope of SPC-GBM without re-calibration respectively covered 0 
+and 1. Unlike this model, DI-VNN with re-calibration have fulfilled the 
+criteria for the intercept and slope but not for the calibration plot.
+
+```{r Show calibration plot before calibration, eval=FALSE, include=FALSE}
+model %>%
+  lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$pred
+        ,event=round(event,1)
+        ,obs=as.integer(obs=='event')
+      ) %>%
+      group_by(event) %>%
+      summarize(
+        model=factor(X,names(Y) %>% .[.!='pca'])
+        ,obs=mean(obs)
+        ,lb=mean(obs)-qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+        ,ub=mean(obs)+qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+      )
+  }) %>%
+  do.call(rbind,.) %>%
+  qplot(event,obs,data=.) +
+  geom_linerange(aes(ymin=lb,ymax=ub)) +
+  geom_abline(lty=2) +
+  facet_wrap(~model) +
+  coord_equal() +
+  scale_x_continuous(limits=0:1) +
+  scale_y_continuous(limits=0:1) +
+  theme(axis.text.x=element_text(angle=90,vjust=0.5,hjust=1))
+```
+
+```{r Show prob. distribution before calibration, eval=FALSE, include=FALSE}
+model %>%
+  lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$pred
+        ,event=round(event,1)
+        ,obs=as.integer(obs=='event')
+      ) %>%
+      group_by(event,obs) %>%
+      summarize(
+        model=factor(X,names(Y) %>% .[!.%in%c('pca','pca_nps')])
+        ,n=n()
+      )
+  }) %>%
+  do.call(rbind,.) %>%
+  qplot(event,n,data=.,geom='col',na.rm=T) +
+  facet_grid(obs~model,scales='free_y') +
+  scale_x_continuous(limits=0:1) +
+  theme(axis.text.x=element_text(angle=90,vjust=0.5,hjust=1))
+```
+
+```{r Show the intercept and slope before calibration, eval=FALSE, include=FALSE}
+model %>%
+  lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$pred
+        ,event=round(event,2)
+        ,obs=as.integer(obs=='event')
+      ) %>%
+      group_by(event) %>%
+      summarize(
+        model=factor(X,names(Y) %>% .[!.%in%c('pca','pca_nps')])
+        ,obs=mean(obs)
+      )
+  }) %>%
+  do.call(rbind,.) %>%
+  group_by(model) %>%
+  do(tidy(lm(obs~event,data=.))) %>%
+  mutate(term=str_remove_all(term,'\\(|\\)') %>% str_to_lower()) %>%
+  pivot_wider(
+    model
+    ,names_from=c('term','term')
+    ,values_from=c('estimate','std.error')
+  ) %>%
+  select(model,estimate_intercept,std.error_intercept,everything()) %>%
+  mutate_at(colnames(.) %>% .[.!='model'],function(x)round(x,2)) %>%
+  lapply(X=1:2,Y=.,function(X,Y){
+    if(X==1){
+      Y %>%
+        knitr::kable() %>%
+        kableExtra::kable_classic()
+    }else{
+      Z=Y %>%
+        mutate(
+          metric='intercept'
+          ,threshold=0
+          ,avg=estimate_intercept
+          ,lb=estimate_intercept-qnorm(0.975)*std.error_intercept
+          ,ub=estimate_intercept+qnorm(0.975)*std.error_intercept
+        ) %>%
+        select(model,metric,threshold,avg,lb,ub)
+      K=Y %>%
+        mutate(
+          metric='slope'
+          ,threshold=1
+          ,avg=estimate_event
+          ,lb=estimate_event-qnorm(0.975)*std.error_event
+          ,ub=estimate_event+qnorm(0.975)*std.error_event
+        ) %>%
+        select(model,metric,threshold,avg,lb,ub)
+      rbind(Z,K) %>%
+        qplot(model,avg,data=.) +
+        geom_errorbar(aes(ymin=lb,ymax=ub),width=0.35) +
+        geom_hline(aes(yintercept=threshold),lty=2) +
+        facet_wrap(~metric) +
+        coord_flip()
+    }
+  })
+```
+
+```{r Compare ROC among models before calibration, eval=FALSE, include=FALSE}
+model %>%
+  lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$results
+        ,ROC_lb=ROC-qnorm(0.975)*ROCSD,ROC_ub=ROC+qnorm(0.975)*ROCSD
+      ) %>%
+      mutate(model=X) %>%
+      select(model,ROC,ROC_lb,ROC_ub)
+  }) %>%
+  do.call(rbind,.) %>%
+  mutate(model=reorder(model,ROC)) %>%
+  qplot(model,ROC,data=.) +
+  geom_errorbar(aes(ymin=ROC_lb,ymax=ROC_ub),width=0.1) +
+  geom_hline(yintercept=0.5,lty=2) +
+  coord_flip()
+```
+
+```{r Save SPC-GBM and DI-VNN classification, eval=FALSE, include=FALSE}
+model$spc_gbm$pred %>%
+  select(Resample,rowIndex,event,obs) %>%
+  setNames(c('subset','index','score','outcome')) %>%
+  mutate(outcome=as.double(outcome=='event')) %>%
+  left_join(
+    select(.,index) %>%
+      filter(!duplicated(.)) %>%
+      arrange(index) %>%
+      cbind(
+        data.frame(
+            key=paste0('th_',str_pad(0:100,3,'left','0'))
+            ,value=seq(0,1,len=101)
+          ) %>%
+          spread(key,value)
+      )
+    ,by='index'
+  ) %>%
+  gather(key,th,-subset,-index,-score,-outcome) %>%
+  select(-key) %>%
+  mutate(pred=as.integer(score>th)) %>%
+  mutate(
+    tp=as.integer(outcome==1 & pred==1)
+    ,fn=as.integer(outcome==1 & pred==0)
+    ,fp=as.integer(outcome==0 & pred==1)
+    ,tn=as.integer(outcome==0 & pred==0)
+  ) %>%
+  select(-index,-score,-outcome,-pred) %>%
+  group_by(subset,th) %>%
+  summarize_all(sum) %>%
+  ungroup() %>%
+  mutate(
+    tpr=tp/(tp+fn+1e-17)
+    ,tnr=tn/(tn+fp+1e-17)
+    ,ppv=tp/(tp+fp+1e-17)
+    ,npv=tn/(tn+fn+1e-17)
+  ) %>%
+  select(-subset,-tp,-fn,-fp,-tn) %>%
+  group_by(th) %>%
+  summarize_all(function(x){
+    y=mean(x)+(-1:1)*qnorm(0.975)*sd(x)/sqrt(length(x))
+    paste0(y,collapse='|')
+  }) %>%
+  gather(metric,interval,-th) %>%
+  separate(interval,c('lb','avg','ub'),sep='\\|') %>%
+  mutate_at(c('lb','avg','ub'),as.numeric) %>%
+  mutate_at(c('lb','avg','ub'),function(x){
+    round(ifelse(x<0,0,ifelse(x>1,1,x)),4)
+  }) %>%
+  saveRDS('data/spc_gbm_classification.rds')
+
+model$divnn$pred %>%
+  select(b,ind,event,obs) %>%
+  setNames(c('subset','index','score','outcome')) %>%
+  mutate(outcome=as.double(outcome=='event')) %>%
+  left_join(
+    select(.,index) %>%
+      filter(!duplicated(.)) %>%
+      arrange(index) %>%
+      cbind(
+        data.frame(
+            key=paste0('th_',str_pad(0:100,3,'left','0'))
+            ,value=seq(0,1,len=101)
+          ) %>%
+          spread(key,value)
+      )
+    ,by='index'
+  ) %>%
+  gather(key,th,-subset,-index,-score,-outcome) %>%
+  select(-key) %>%
+  mutate(pred=as.integer(score>th)) %>%
+  mutate(
+    tp=as.integer(outcome==1 & pred==1)
+    ,fn=as.integer(outcome==1 & pred==0)
+    ,fp=as.integer(outcome==0 & pred==1)
+    ,tn=as.integer(outcome==0 & pred==0)
+  ) %>%
+  select(-index,-score,-outcome,-pred) %>%
+  group_by(subset,th) %>%
+  summarize_all(sum) %>%
+  ungroup() %>%
+  mutate(
+    tpr=tp/(tp+fn+1e-17)
+    ,tnr=tn/(tn+fp+1e-17)
+    ,ppv=tp/(tp+fp+1e-17)
+    ,npv=tn/(tn+fn+1e-17)
+  ) %>%
+  select(-subset,-tp,-fn,-fp,-tn) %>%
+  group_by(th) %>%
+  summarize_all(function(x){
+    y=mean(x)+(-1:1)*qnorm(0.975)*sd(x)/sqrt(length(x))
+    paste0(y,collapse='|')
+  }) %>%
+  gather(metric,interval,-th) %>%
+  separate(interval,c('lb','avg','ub'),sep='\\|') %>%
+  mutate_at(c('lb','avg','ub'),as.numeric) %>%
+  mutate_at(c('lb','avg','ub'),function(x){
+    round(ifelse(x<0,0,ifelse(x>1,1,x)),4)
+  }) %>%
+  saveRDS('data/divnn_classification.rds')
+```
+
+```{r Compare AUC of ROC before calibration, eval=FALSE, include=FALSE}
+model %>%
+  lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$results
+        ,ROC_lb=ROC-qnorm(0.975)*ROCSD,ROC_ub=ROC+qnorm(0.975)*ROCSD
+      ) %>%
+      mutate(model=X) %>%
+      select(model,ROC,ROC_lb,ROC_ub)
+  }) %>%
+  do.call(rbind,.) %>%
+  knitr::kable() %>%
+  kableExtra::kable_classic()
+```
+
+```{r Show calibration plot after calibration, eval=FALSE, include=FALSE}
+calib_model %>%
+  lapply(X=names(.),Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$pred
+        ,event=round(event,1)
+        ,obs=as.integer(obs=='event')
+      ) %>%
+      group_by(event) %>%
+      summarize(
+        model=factor(X,names(Y))
+        ,obs=mean(obs)
+        ,lb=mean(obs)-qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+        ,ub=mean(obs)+qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+      )
+  }) %>%
+  do.call(rbind,.) %>%
+  qplot(event,obs,data=.) +
+  geom_linerange(aes(ymin=lb,ymax=ub)) +
+  geom_abline(lty=2) +
+  facet_wrap(~model) +
+  coord_equal() +
+  scale_x_continuous(limits=0:1) +
+  scale_y_continuous(limits=0:1) +
+  theme(axis.text.x=element_text(angle=90,vjust=0.5,hjust=1))
+```
+
+```{r Show prob. distribution after calibration, eval=FALSE, include=FALSE}
+calib_model %>%
+  lapply(X=names(.),Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$pred
+        ,event=round(event,1)
+        ,obs=as.integer(obs=='event')
+      ) %>%
+      group_by(event,obs) %>%
+      summarize(
+        model=factor(X,names(Y))
+        ,n=n()
+      )
+  }) %>%
+  do.call(rbind,.) %>%
+  qplot(event,n,data=.,geom='col',na.rm=T) +
+  facet_grid(obs~model,scales='free_y') +
+  theme(axis.text.x=element_text(angle=90,vjust=0.5,hjust=1))
+```
+
+```{r Show the intercept and slope after calibration, eval=FALSE, include=FALSE}
+calib_model %>%
+  lapply(X=names(.),Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$pred
+        ,event=round(event,1)
+        ,obs=as.integer(obs=='event')
+      ) %>%
+      group_by(event) %>%
+      summarize(
+        model=factor(X,names(Y))
+        ,obs=mean(obs)
+      )
+  }) %>%
+  do.call(rbind,.) %>%
+  group_by(model) %>%
+  do(tidy(lm(obs~event,data=.))) %>%
+  mutate(term=str_remove_all(term,'\\(|\\)') %>% str_to_lower()) %>%
+  pivot_wider(
+    model
+    ,names_from=c('term','term')
+    ,values_from=c('estimate','std.error')
+  ) %>%
+  select(model,estimate_intercept,std.error_intercept,everything()) %>%
+  mutate_at(colnames(.) %>% .[.!='model'],function(x)round(x,2)) %>%
+  lapply(X=1:2,Y=.,function(X,Y){
+    if(X==1){
+      Y %>%
+        knitr::kable() %>%
+        kableExtra::kable_styling(full_width=T)
+    }else{
+      Z=Y %>%
+        mutate(
+          metric='intercept'
+          ,threshold=0
+          ,avg=estimate_intercept
+          ,lb=estimate_intercept-qnorm(0.975)*std.error_intercept
+          ,ub=estimate_intercept+qnorm(0.975)*std.error_intercept
+        ) %>%
+        select(model,metric,threshold,avg,lb,ub)
+      K=Y %>%
+        mutate(
+          metric='slope'
+          ,threshold=1
+          ,avg=estimate_event
+          ,lb=estimate_event-qnorm(0.975)*std.error_event
+          ,ub=estimate_event+qnorm(0.975)*std.error_event
+        ) %>%
+        select(model,metric,threshold,avg,lb,ub)
+      rbind(Z,K) %>%
+        qplot(model,avg,data=.) +
+        geom_errorbar(aes(ymin=lb,ymax=ub),width=0.35) +
+        geom_hline(aes(yintercept=threshold),lty=2) +
+        facet_wrap(~metric) +
+        coord_flip()
+    }
+  })
+```
+
+```{r Compare ROC among models after calibration, eval=FALSE, include=FALSE}
+calib_model %>%
+  lapply(X=names(.) %>% .[.!='pca'],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$results
+        ,ROC_lb=ROC-qnorm(0.975)*ROCSD,ROC_ub=ROC+qnorm(0.975)*ROCSD
+      ) %>%
+      mutate(model=X) %>%
+      select(model,ROC,ROC_lb,ROC_ub)
+  }) %>%
+  do.call(rbind,.) %>%
+  mutate(model=reorder(model,ROC)) %>%
+  qplot(model,ROC,data=.) +
+  geom_errorbar(aes(ymin=ROC_lb,ymax=ROC_ub),width=0.35) +
+  geom_hline(yintercept=0.5,lty=2) +
+  coord_flip()
+```
+
+```{r Compare AUC of ROC after calibration, eval=FALSE, include=FALSE}
+calib_model %>%
+  lapply(X=names(.) %>% .[.!='pca'],Y=.,function(X,Y){
+    mutate(
+        Y[[X]]$results
+        ,ROC_lb=ROC-qnorm(0.975)*ROCSD,ROC_ub=ROC+qnorm(0.975)*ROCSD
+      ) %>%
+      mutate(model=X) %>%
+      select(model,ROC,ROC_lb,ROC_ub)
+  }) %>%
+  do.call(rbind,.) %>%
+  knitr::kable() %>%
+  kableExtra::kable_classic()
+```
+
+```{r Create a table of calibration intercepts and slopes, include=FALSE}
+calib_int_slo=
+  rbind(
+    model %>%
+      lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+        mutate(
+            Y[[X]]$pred
+            ,event=round(event,2)
+            ,obs=as.integer(obs=='event')
+          ) %>%
+          group_by(event) %>%
+          summarize(
+            model=factor(X,names(Y) %>% .[!.%in%c('pca','pc_elnet')])
+            ,obs=mean(obs)
+          )
+      }) %>%
+      do.call(rbind,.) %>%
+      group_by(model) %>%
+      do(tidy(lm(obs~event,data=.))) %>%
+      mutate(term=str_remove_all(term,'\\(|\\)') %>% str_to_lower()) %>%
+      pivot_wider(model,names_from=c('term','term'),values_from=c('estimate','std.error')) %>%
+      select(model,estimate_intercept,std.error_intercept,everything()) %>%
+      mutate_at(colnames(.) %>% .[.!='model'],function(x)round(x,2)) %>%
+      mutate(set='1. Without re-calibration')
+    ,calib_model %>%
+      lapply(X=names(.),Y=.,function(X,Y){
+        mutate(
+            Y[[X]]$pred
+            ,event=round(event,1)
+            ,obs=as.integer(obs=='event')
+          ) %>%
+          group_by(event) %>%
+          summarize(
+            model=factor(X,names(Y))
+            ,obs=mean(obs)
+          )
+      }) %>%
+      do.call(rbind,.) %>%
+      group_by(model) %>%
+      do(tidy(lm(obs~event,data=.))) %>%
+      mutate(term=str_remove_all(term,'\\(|\\)') %>% str_to_lower()) %>%
+      pivot_wider(model,names_from=c('term','term'),values_from=c('estimate','std.error')) %>%
+      select(model,estimate_intercept,std.error_intercept,everything()) %>%
+      mutate_at(colnames(.) %>% .[.!='model'],function(x)round(x,2)) %>%
+      mutate(set='2. With re-calibration')
+  ) %>%
+  mutate(
+    model=case_when(
+      model=='elnet'~'1. LR'
+      ,model=='spc_rf'~'2. SPC-RF'
+      ,model=='spc_gbm'~'3. SPC-GBM'
+      ,model=='divnn'~'4. DI-VNN'
+      ,TRUE~''
+    )
+    ,model=factor(model,sort(unique(model),decreasing=T))
+  ) %>%
+  lapply(X=1,Y=.,function(X,Y){
+    Z=Y %>%
+      mutate(
+        metric='intercept'
+        ,threshold=0
+        ,avg=estimate_intercept
+        ,lb=estimate_intercept-qnorm(0.975)*std.error_intercept
+        ,ub=estimate_intercept+qnorm(0.975)*std.error_intercept
+      ) %>%
+      select(set,model,metric,threshold,avg,lb,ub)
+    K=Y %>%
+      mutate(
+        metric='slope'
+        ,threshold=1
+        ,avg=estimate_event
+        ,lb=estimate_event-qnorm(0.975)*std.error_event
+        ,ub=estimate_event+qnorm(0.975)*std.error_event
+      ) %>%
+      select(set,model,metric,threshold,avg,lb,ub)
+    rbind(Z,K)
+  }) %>%
+  .[[1]] %>%
+  mutate(
+    lb=ifelse(is.nan(lb),avg,lb)
+    ,ub=ifelse(is.nan(ub),avg,ub)
+  ) %>%
+  mutate(
+    result=
+      paste0(
+        str_to_sentence(metric)
+        ,' '
+        ,round(avg,2)
+        ,' (±'
+        ,round((ub-lb)/2,2)
+        ,')'
+      )
+  ) %>%
+  select(-threshold,-avg,-lb,-ub) %>%
+  spread(metric,result)
+```
+
+```{r figure-1, fig.cap="Calibration metric and plot", echo=FALSE, fig.height=3.74016, fig.width=7.48031, warning=FALSE}
+rbind(
+    model %>%
+      lapply(X=names(.) %>% .[!.%in%c('pca','pc_elnet')],Y=.,function(X,Y){
+        mutate(
+            Y[[X]]$pred
+            ,event=round(event,1)
+            ,obs=as.integer(obs=='event')
+          ) %>%
+          group_by(event) %>%
+          summarize(
+            model=factor(X,names(Y) %>% .[!.%in%c('pca','pc_elnet')])
+            ,obs=mean(obs)
+            ,lb=mean(obs)-qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+            ,ub=mean(obs)+qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+          )
+      }) %>%
+      do.call(rbind,.) %>%
+      mutate(set='1. Without re-calibration')
+    ,calib_model %>%
+      lapply(X=names(.),Y=.,function(X,Y){
+        mutate(
+            Y[[X]]$pred
+            ,event=round(event,1)
+            ,obs=as.integer(obs=='event')
+          ) %>%
+          group_by(event) %>%
+          summarize(
+            model=factor(X,names(Y))
+            ,obs=mean(obs)
+            ,lb=mean(obs)-qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+            ,ub=mean(obs)+qnorm(0.975)*sqrt(mean(obs)*(1-mean(obs))/n())
+          )
+      }) %>%
+      do.call(rbind,.) %>%
+      mutate(set='2. With re-calibration')
+  ) %>%
+  mutate(
+    model=case_when(
+      model=='elnet'~'1. LR'
+      ,model=='spc_rf'~'2. SPC-RF'
+      ,model=='spc_gbm'~'3. SPC-GBM'
+      ,model=='divnn'~'4. DI-VNN'
+      ,TRUE~''
+    )
+  ) %>%
+  mutate(
+    set=case_when(
+      set=='1. Without re-calibration'~'a'
+      ,set=='2. With re-calibration'~'b'
+      ,TRUE~''
+    )
+  ) %>%
+  qplot(event,obs,data=.) +
+  geom_linerange(aes(ymin=lb,ymax=ub)) +
+  geom_abline(lty=2) +
+  geom_text(
+    data=
+      calib_int_slo %>%
+      mutate(
+        set=case_when(
+          set=='1. Without re-calibration'~'a'
+          ,set=='2. With re-calibration'~'b'
+          ,TRUE~''
+        )
+      )
+    ,x=0.5,y=-0.2,size=3
+    ,aes(label=intercept)
+    ,family='Times New Roman'
+  ) +
+  geom_text(
+    data=
+      calib_int_slo %>%
+      mutate(
+        set=case_when(
+          set=='1. Without re-calibration'~'a'
+          ,set=='2. With re-calibration'~'b'
+          ,TRUE~''
+        )
+      )
+    ,x=0.5,y=-0.35,size=3
+    ,aes(label=slope)
+    ,family='Times New Roman'
+  ) +
+  facet_grid(set~model) +
+  scale_x_continuous('Predicted probability',limits=c(0,1)) +
+  scale_y_continuous('True probability',limits=c(-0.4,1),breaks=seq(0,1,0.25)) +
+  theme(
+    text=element_text(family='Times New Roman',size=8)
+    ,axis.text.x=element_text(angle=90,vjust=0.5,hjust=1)
+    ,strip.background.y=element_blank()
+    ,strip.placement='outside'
+    ,strip.text.y=element_text(margin=margin(),angle=0,face='bold',vjust=1,size=10)
+  )
+
+ggsave('fig1.tiff',width=190,height=95,units='mm',dpi=1000)
+```
+
+We only used training set to determine the best between two well-calibrated 
+models, which was SPC-GBM with re-calibration. Both RF and GBM algorithms 
+achieve predictive performance by overfitting the training set, as observed in 
+this study. Yet, the models developed using these algorithms often outperforms 
+those using algorithms. This is not always the case in this study. Predictive 
+performances of the SPC-GBM were shown similar to those of DI-VNN without 
+re-calibration in an external validation set with local ethnicity. In addition, 
+the latter model also showed similar predictive performances among those using 
+training and two testing sets, either with local or non-local ethnicity. This 
+is achieved without considering the number of events per variable. In addition, 
+a previous study also applied a questionnaire-free method to predict GDS-15 in 
+older adults living alone by a wearable device, but the model is considerably 
+overfitting because of a very small sample size (AUROC 0.96, 95% CI 0.91 to 
+0.99; **n**=47).
+
+```{r}
+performance=
+  pred %>%
+  lapply(X=names(.),Y=.,function(X,Y){
+    Y[[X]] %>%
+      lapply(X=names(.),Y=.,function(X,Y){
+        set.seed(33)
+        Y[[X]] %>%
+          lapply(X=seq(30),Y=.,function(X,Y){
+            Y %>%
+              mutate(i=seq(nrow(.))) %>%
+              slice(sample(seq(nrow(.)),nrow(.),replace=T)) %>%
+              mutate(b=X)
+          }) %>%
+          do.call(rbind,.) %>%
+          mutate(set=X)
+      }) %>%
+      do.call(rbind,.) %>%
+      mutate(model=X)
+  }) %>%
+  do.call(rbind,.) %>%
+  mutate(seq=seq(nrow(.))) %>%
+  left_join(
+    expand.grid(
+      seq=seq(nrow(.))
+      ,th=seq(0,1,0.01)
+    )
+    ,by='seq'
+  ) %>%
+  mutate(
+    pred=factor(ifelse(event>th,'event','non_event'),levels(obs))
+  ) %>%
+  group_by(set,model,b,th) %>%
+  summarize(
+    acc=mean(pred==obs)
+    ,tpr=sum(pred==obs & pred=='event')/sum(obs=='event')
+    ,tnr=sum(pred==obs & pred=='non_event')/sum(obs=='non_event')
+    ,ppv=sum(pred==obs & pred=='event')/sum(pred=='event')
+    ,npv=sum(pred==obs & pred=='non_event')/sum(pred=='non_event')
+  ) %>%
+  left_join(
+    select(.,-th,-acc,-ppv,-npv) %>%
+      arrange(set,model,desc(tnr),tpr) %>%
+      group_by(set,model,b) %>%
+      mutate(seq=seq(n())) %>%
+      left_join(
+        mutate(.,seq=seq-1)
+        ,by=c('set','model','b','seq')
+      ) %>%
+      mutate(
+        tnr=abs(tnr.y-tnr.x)
+        ,tpr=abs(tpr.y-tpr.x)
+      ) %>%
+      mutate(
+        auroc=
+          ifelse(
+            seq==1
+            ,0.5*tnr*tpr
+            ,0.5*tnr*tpr+tnr*tpr.x
+          )
+      ) %>%
+      summarize(auroc=sum(auroc,na.rm=T))
+    ,by=c('set','model','b')
+  ) %>%
+  ungroup() %>%
+  mutate(
+    calib=ifelse(str_detect(model,'0'),'Without re-calibration','With re-calibration')
+    ,model=str_remove_all(model,'0')
+  ) %>%
+  mutate(
+    best=
+      (model=='divnn' & calib=='Without re-calibration') |
+      (model=='spc_gbm' & calib=='With re-calibration')
+  ) %>%
+  mutate(
+    set=case_when(
+      set=='training'~'Internal\nvalidation,\nmodeling'
+      ,set=='int_testing'~'External\nvalidation,\nlocal\nethnicity'
+      ,set=='ext_testing'~'External\nvalidation,\nnon-local\nethnicity'
+      ,TRUE~''
+    )
+    ,set=
+      set %>%
+      factor(unique(.) %>% .[c(3,2,1)])
+    ,calib=
+      calib %>%
+      factor(unique(.) %>% .[1:2])
+    ,model=case_when(
+      model=='elnet'~'LR'
+      ,model=='spc_rf'~'SPC-RF'
+      ,model=='spc_gbm'~'SPC-GBM'
+      ,model=='divnn'~'DI-VNN'
+      ,TRUE~''
+    )
+  )
+```
+
+
+```{r Comparison of ROC scores of any models for each partition set, include=FALSE}
+ROC_comparison=
+  # mod_eval %>%
+  # lapply(X=names(.),Y=.,function(X,Y){
+  #   Z=Y[[X]] %>%
+  #     lapply(function(x)x$optres$Group1['AUC-ROC',]) %>%
+  #     do.call(rbind,.) %>%
+  #     rownames_to_column(var='set') %>%
+  #     mutate(model=X)
+  #   suppressWarnings(separate(Z,CI,c('lb','ub'),sep='-'))
+  # }) %>%
+  # do.call(rbind,.) %>%
+  # mutate(
+  #   lb=ifelse(lb=='NA',Score,lb)
+  #   ,ub=ifelse(ub=='NA',Score,ub)
+  # ) %>%
+  # mutate_at(colnames(.) %>% .[!.%in%c('model','set')],function(x)as.numeric(x))%>%
+  # mutate(set=ifelse(set=='training','int_val2',set)) %>%
+  # rbind(
+  #   model %>%
+  #   lapply(X=names(.) %>% .[.!='pca'],Y=.,function(X,Y){
+  #     mutate(Y[[X]]$results,lb=ROC-qnorm(0.975)*ROCSD,ub=ROC+qnorm(0.975)*ROCSD) %>%
+  #       rename(Score=ROC) %>%
+  #       mutate(set='int_val',model=paste0(X,'0')) %>%
+  #       select(set,Score,lb,ub,model)
+  #   }) %>%
+  #   do.call(rbind,.)
+  #   ,calib_model %>%
+  #     lapply(X=names(.) %>% .[.!='pca'],Y=.,function(X,Y){
+  #       mutate(Y[[X]]$results,lb=ROC-qnorm(0.975)*ROCSD,ub=ROC+qnorm(0.975)*ROCSD) %>%
+  #         rename(Score=ROC) %>%
+  #         mutate(set='int_val',model=X) %>%
+  #         select(set,Score,lb,ub,model)
+  #     }) %>%
+  #     do.call(rbind,.)
+  # ) %>%
+  # mutate(
+  #   calib=ifelse(str_detect(model,'0'),'Without re-calibration','With re-calibration')
+  #   ,model=str_remove_all(model,'0')
+  # ) %>%
+  # mutate(
+  #   best=
+  #     (model=='divnn' & calib=='Without re-calibration') |
+  #     (model=='spc_gbm' & calib=='With re-calibration')
+  # ) %>%
+  # mutate(
+  #   set=case_when(
+  #     set=='int_val'~'Internal\nvalidation,\nmodeling'
+  #     ,set=='int_val2'~'Internal\nvalidation,\nresampling'
+  #     ,set=='int_testing'~'External\nvalidation,\nlocal\nethnicity'
+  #     ,set=='ext_testing'~'External\nvalidation,\nnon-local\nethnicity'
+  #     ,TRUE~''
+  #   )
+  #   ,set=
+  #     set %>%
+  #     factor(unique(.) %>% .[c(4,1,2,3)])
+  #   ,calib=
+  #     calib %>%
+  #     factor(unique(.) %>% .[1:2])
+  #   ,model=case_when(
+  #     model=='elnet'~'LR'
+  #     ,model=='spc_rf'~'SPC-RF'
+  #     ,model=='spc_gbm'~'SPC-GBM'
+  #     ,model=='divnn'~'DI-VNN'
+  #     ,TRUE~''
+  #   )
+  # ) %>%
+  # filter(set!='Internal\nvalidation,\nresampling') %>%
+  # arrange(set,desc(Score)) %>%
+  # select(set,calib,model,everything()) %>%
+  # mutate(model=reorder(model,desc(Score),mean)) %>%
+  # filter(best) %>%
+  # select(-best)
+  performance %>%
+  select(set,model,calib,b,auroc,best) %>%
+  filter(!duplicated(.)) %>%
+  group_by(set,model,calib,best) %>%
+  summarize(
+    avg=mean(auroc)
+    ,lb=mean(auroc)-qnorm(0.975)*sd(auroc)/sqrt(n())
+    ,ub=mean(auroc)+qnorm(0.975)*sd(auroc)/sqrt(n())
+  ) %>%
+  ungroup() %>%
+  filter(best) %>%
+  select(-best) %>%
+  rename(Score=avg) %>%
+  arrange(set,desc(Score)) %>%
+  lapply(X=1:2,Y=.,function(X,Y){
+    if(X==1){
+      Y %>%
+        mutate(
+          model=paste0(model,', ',str_to_lower(calib))
+          ,auroc=
+            paste0(
+              round(Score,3)
+              ,' ('
+              ,round(lb,3)
+              ,' to '
+              ,round(ub,3)
+              ,')'
+            )
+        ) %>%
+        select(-calib,-Score,-lb,-ub) %>%
+        setNames(c('Data partition','Model','AUROC (95% CI)')) %>%
+        knitr::kable(
+          format='latex'
+          ,caption='Predictive performances of well-calibrated models'
+        ) %>%
+        kableExtra::kable_classic(latex_options="HOLD_position") %>%
+        kableExtra::add_footnote(
+          c('AUROC, area under receiver operating characteristics curve')
+          ,notation='none'
+        )
+    }else{
+      Y %>%
+        group_by(set) %>%
+        mutate(mean_Score=mean(Score)) %>%
+        ungroup() %>%
+        # qplot(model,Score,color=best,data=.) +
+        qplot(paste0(model,', ',calib),Score,data=.) +
+        geom_errorbar(aes(ymin=lb,ymax=ub),width=0.2) +
+        geom_hline(aes(yintercept=mean_Score),lty=2) +
+        geom_hline(yintercept=0.5,lty=2) +
+        facet_grid(set~.,scales='free_y') +
+        coord_flip() +
+        scale_x_discrete('Model') +
+        scale_y_continuous('AUROC (95% CI)',breaks=seq(0.5,1,0.05)) +
+        scale_color_discrete('Best\nmodel') +
+        theme(
+          axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)
+          ,strip.text.y=element_text(angle=0)
+        )
+    }
+  })
+```
+
+```{r Check the AUROC comparison, eval=FALSE, , echo=FALSE, include=FALSE}
+ROC_comparison[[1]]
+```
+
+```{r Check the ROC comparison plot, eval=FALSE, fig.height=4, fig.width=7, include=FALSE}
+ROC_comparison[[2]]
+```
+
+```{r table-4, eval=FALSE, include=FALSE}
+performance %>%
+  filter(set=='Internal\nvalidation,\nmodeling' & tpr>=0.9 & best) %>%
+  arrange(set,model,calib,b,tpr) %>%
+  group_by(set,model,calib,b) %>%
+  slice(1) %>%
+  ungroup() %>%
+  group_by(set,model,calib) %>%
+  summarize(
+    th_min=min(th)
+    ,th_max=max(th)
+  ) %>%
+  ungroup() %>%
+  select(-set) %>%
+  right_join(
+    performance
+    ,by=c('model','calib')
+  ) %>%
+  filter(th>=th_min & th<=th_max) %>%
+  select(-th_min,-th_max,-b,-best) %>%
+  group_by(set,model,calib) %>%
+  summarize_all(function(x){
+    paste0(
+      round(mean(x,na.rm=T),3)
+      ,' ('
+      ,round(mean(x,na.rm=T)-qnorm(0.975)*sd(x,na.rm=T)/sqrt(length(x)),3)
+      ,' to '
+      ,round(mean(x,na.rm=T)+qnorm(0.975)*sd(x,na.rm=T)/sqrt(length(x)),3)
+      ,')'
+    )
+  }) %>%
+  ungroup() %>%
+  gather(metric,value,-set,-model,-calib) %>%
+  arrange(set,model,calib,metric) %>%
+  left_join(
+    filter(.,metric%in%c('auroc','th')) %>%
+      spread(metric,value)
+    ,by=c('set','model','calib')
+  ) %>%
+  filter(!metric%in%c('auroc','th')) %>%
+  mutate(
+    model=paste0(model,', ',str_to_lower(calib))
+    ,metric=
+      str_to_upper(metric) %>%
+      str_replace_all('ACC','Accuracy') %>%
+      str_replace_all('TPR','Sensitivity') %>%
+      str_replace_all('TNR','Specificity') %>%
+      factor(c('Sensitivity','Specificity','Accuracy','NPV','PPV'))
+  ) %>%
+  mutate(
+    model=
+      factor(
+        model,
+        c('SPC-GBM, with re-calibration'
+          ,'DI-VNN, without re-calibration')
+      )
+  ) %>%
+  arrange(set,model,metric) %>%
+  select(-calib) %>%
+  select(set,model,auroc,th,everything()) %>%
+  setNames(
+    c('Data partition'
+      ,'Model'
+      ,'AUROC (95% CI)'
+      ,'Threshold (95% CI)*'
+      ,'Metric','Value (95% CI)')
+  ) %>%
+  knitr::kable(
+    format='html'
+    ,caption='Predictive performances of well-calibrated models'
+  ) %>%
+  kableExtra::column_spec(1:6,extra_css = "vertical-align:top;") %>%
+  kableExtra::collapse_rows() %>%
+  kableExtra::kable_classic(latex_options="HOLD_position") %>%
+  kableExtra::footnote(
+    symbol=
+      paste0(
+        'Thresholds closer to sensitivity of 0.90 '
+        ,'by training set '
+        ,'were taken from each bootstrapped subset.'
+      )
+  ) %>%
+  kableExtra::add_footnote(
+    c('AUROC, area under receiver operating characteristics curve'
+      ,'NPV, negative predictive value'
+      ,'PPV, positive predictive value')
+    ,notation='none'
+  )
+```
+
+## Variable importance
+
+We may identify how the predictors are important to predict GDS-15 using both 
+models. There are 7 PCs in SPC-GBM, that represent latent variables having 
+different weights among them on the 37 predictors. We visualize absolute 
+values of these weights for each selected PC (Figure 2). Absolute values are 
+used because the positive/negative values cannot be interpreted straightforward 
+whether these tend to events/nonevents.
+
+By observing the visualization, we can infer the meaning of the latent 
+variables. These are named based on the higher absolute values referring to 
+particular predictors. The most important PC in SPC-GBM is PC11 (education and 
+living status). In this PC, elders with low education but literate and living 
+alone tend to be predictive.
+
+The next important PCs are PC4, PC8 and PC10, which imply respectively 
+religious perception, educational perception, and current employment status on 
+health. We do not describe the religion explicitly to maintain inclusiveness of 
+our prediction models. Education also contributes to PC10. Both PC8 and PC10 
+also have larger weights on oral status. The less important predictors are PC16 
+(very poor hearing), PC14 (very poor health and others), and PC18 (unknown). 
+The last PC has sporadic, slightly-weighted predictors.
+
+In DI-VNN, both PC4 and PC18 were also selected as the features (Figure 2). 
+There are original predictors selected in this model, which were religion A 
+(F1) or Z (F3), poor (F2) or good (F10) health conditions, living alone (F6) or 
+with family members but without spouse (F8), separated/divorced marital status 
+(F7), previous employment  status (F9), medication (F4), and comorbidity (F5).
+
+Beyond PC4 and PC18, there is PC5 (health problems). It is related to 
+comorbidity (F5) and medication (F4). The PC4 is also reinforced by PC37 
+(religion) with less involvement of health aspect. Poor-health medication 
+(PC28) was also selected with larger weights on the selected predictors, which 
+are poor health condition (F2) and medication (F4), and the deselected ones, 
+which are education and income. Both PC27 and PC26 are previous employment 
+status (F9), but the PC27 also has larger weights on age, hearing problem, and 
+number of child. The last PC21 has larger weights on several predictors 
+related to family support on health.
+
+```{r Recode the DI-VNNs, include=FALSE}
+set$divnn$visualization$ontonet$recode=
+  notes(set$divnn$output)$ontology %>%
+  mutate(
+    label=source
+    ,original=!str_detect(source,'PC|ONT|root')
+  ) %>%
+  left_join(
+    select(.,label,original) %>%
+      filter(!duplicated(.)) %>%
+      group_by(original) %>%
+      mutate(source2=seq(n())) %>%
+      ungroup() %>%
+      mutate(source2=ifelse(original,paste0('F',source2),label))
+    ,by=c('original','label')
+  ) %>%
+  select(-source) %>%
+  rename(source=source2) %>%
+  select(source,everything()) %>%
+  select(-original)
+
+# set$divnn2$visualization$ontonet$recode=
+#   notes(set$divnn$output2)$ontology %>%
+#   mutate(
+#     label=source
+#     ,original=!str_detect(source,'PC|ONT|root')
+#   ) %>%
+#   left_join(
+#     select(.,label,original) %>%
+#       filter(!duplicated(.)) %>%
+#       group_by(original) %>%
+#       mutate(source2=seq(n())) %>%
+#       ungroup() %>%
+#       mutate(source2=ifelse(original,paste0('F',source2),label))
+#     ,by=c('original','label')
+#   ) %>%
+#   select(-source) %>%
+#   rename(source=source2) %>%
+#   select(source,everything()) %>%
+#   select(-original)
+```
+
+```{r Recode the DI-VNNs for visualization, include=FALSE}
+set$divnn$visualization$ontoarray$recode=
+  notes(set$divnn$output)$ontotype %>%
+  lapply(function(x){
+    x %>%
+      `rownames<-`(
+        data.frame(label=rownames(x)) %>%
+          left_join(
+            set$divnn$visualization$ontonet$recode %>%
+              select(source,label) %>%
+              filter(!duplicated(.))
+            ,by='label'
+          ) %>%
+          pull(source)
+      )
+  })
+
+# set$divnn2$visualization$ontoarray$recode=
+#   notes(set$divnn$output2)$ontotype %>%
+#   lapply(function(x){
+#     x %>%
+#       `rownames<-`(
+#         data.frame(label=rownames(x)) %>%
+#           left_join(
+#             set$divnn2$visualization$ontonet$recode %>%
+#               select(source,label) %>%
+#               filter(!duplicated(.))
+#             ,by='label'
+#           ) %>%
+#           pull(source)
+#       )
+#   })
+```
+
+```{r Set PC weights sorted by PC-GBM, include=FALSE}
+set$divnn$visualization$pc=
+  model$pca %>%
+  lapply(function(x){
+    x$prcomp$rotation %>%
+      as.data.frame() %>%
+      rownames_to_column(var='predictor')
+  }) %>%
+  do.call(rbind,.) %>%
+  group_by(predictor) %>%
+  summarize_all(mean,.groups='drop') %>%
+  gather(pc,value,-predictor) %>%
+  filter(pc%in%set$divnn$visualization$ontonet$recode$label) %>%
+  left_join(
+    set$divnn$visualization$ontonet$recode %>%
+      filter(relation=='feature') %>%
+      rename(predictor=label) %>%
+      select(predictor,source) %>%
+      filter(!duplicated(.))
+    ,by='predictor'
+  ) %>%
+  mutate(
+    pc_label=case_when(
+      pc=='PC4'~'Religious perception on health'
+      ,pc=='PC5'~'Health problems'
+      ,pc=='PC18'~'Unknown'
+      ,pc=='PC21'~'Family support on health'
+      ,pc=='PC26'~'Employed before'
+      ,pc=='PC27'~'Employed before'
+      ,pc=='PC28'~'Poor-health medication'
+      ,pc=='PC37'~'Religion'
+      ,TRUE~''
+    )
+  ) %>%
+  mutate(
+    predictor=
+      predictor %>%
+      str_replace_all('moslem','A') %>%
+      str_replace_all('christian','Z')
+  ) %>%
+  mutate(
+    predictor=
+      paste0(source,' - ',predictor) %>%
+      factor(sort(unique(.),decreasing=T))
+    ,pc=
+      paste0(pc,' - ',pc_label) %>%
+      factor(sort(unique(.),decreasing=T))
+  ) %>%
+  rename(weight=value)
+
+# set$divnn2$visualization$pc=
+#   model$pca %>%
+#   lapply(function(x){
+#     x$prcomp$rotation %>%
+#       as.data.frame() %>%
+#       rownames_to_column(var='predictor')
+#   }) %>%
+#   do.call(rbind,.) %>%
+#   group_by(predictor) %>%
+#   summarize_all(mean,.groups='drop') %>%
+#   gather(pc,value,-predictor) %>%
+#   filter(pc%in%set$divnn2$visualization$ontonet$recode$label) %>%
+#   left_join(
+#     set$divnn2$visualization$ontonet$recode %>%
+#       filter(relation=='feature') %>%
+#       rename(predictor=label) %>%
+#       select(predictor,source) %>%
+#       filter(!duplicated(.))
+#     ,by='predictor'
+#   ) %>%
+#   mutate(
+#     pc_label=case_when(
+#       pc=='PC4'~'Religious perception on health'
+#       ,pc=='PC5'~'Health problems'
+#       ,pc=='PC18'~'Unknown'
+#       ,pc=='PC21'~'Family support on health'
+#       ,pc=='PC26'~'Employed before'
+#       ,pc=='PC27'~'Employed before'
+#       ,pc=='PC28'~'Poor-health medication'
+#       ,pc=='PC37'~'Religion'
+#       ,TRUE~''
+#     )
+#   ) %>%
+#   mutate(
+#     predictor=
+#       predictor %>%
+#       str_replace_all('moslem','A') %>%
+#       str_replace_all('christian','Z')
+#   ) %>%
+#   mutate(
+#     predictor=
+#       paste0(source,' - ',predictor) %>%
+#       factor(sort(unique(.),decreasing=T))
+#     ,pc=
+#       paste0(pc,' - ',pc_label) %>%
+#       factor(sort(unique(.),decreasing=T))
+#   ) %>%
+#   rename(weight=value)
+```
+
+```{r Prepare tables for variable importance, include=FALSE}
+vimp_spc_gbm=
+  model$pca %>%
+  lapply(function(x){
+    x$prcomp$rotation %>%
+      as.data.frame() %>%
+      rownames_to_column(var='predictor')
+  }) %>%
+  do.call(rbind,.) %>%
+  group_by(predictor) %>%
+  summarize_all(mean,.groups='drop') %>%
+  gather(pc,value,-predictor) %>%
+  left_join(
+    varImp(model$spc_rf)[[1]] %>%
+      arrange(desc(Overall)) %>%
+      rownames_to_column(var='pc')
+    ,by='pc'
+  ) %>%
+  filter(!is.na(Overall)) %>%
+  mutate(pc=reorder(pc,desc(Overall))) %>%
+  mutate(
+    pc_label=case_when(
+      pc=='PC4'~'Religious perception on health'
+      ,pc=='PC8'~'Educational perception on health'
+      ,pc=='PC10'~'Current employment status on health'
+      ,pc=='PC11'~'Education and living status'
+      ,pc=='PC14'~'Very poor health and others'
+      ,pc=='PC16'~'Very poor hearing'
+      ,pc=='PC18'~'Unknown'
+      ,TRUE~''
+    )
+  ) %>%
+  mutate(
+    predictor=
+      predictor %>%
+      str_replace_all('moslem','A') %>%
+      str_replace_all('christian','Z')
+  ) %>%
+  mutate(pc=paste0(pc,' - ',pc_label)) %>%
+  mutate(
+      pc=factor(pc,unique(arrange(.,desc(Overall))$pc))
+  ) %>%
+  rename(weight=value) %>%
+  mutate(weight=ifelse(abs(weight)<0,0,weight)) %>%
+  select(-Overall) %>%
+  mutate(model='SPC-GBM')
+
+vimp_divnn=
+  set$divnn$visualization$pc %>%
+  mutate(
+    selected=
+      ifelse(!str_detect(predictor,'NA'),'Selected by DI-VNN','Not selected by DI-VNN')
+    ,predictor=
+      ifelse(
+        !str_detect(predictor,'NA')
+        ,as.character(predictor)
+        ,str_remove_all(predictor,'NA - ')
+      )
+  ) %>%
+  mutate(pc=as.character(pc)) %>%
+  mutate(
+    pc=
+      ifelse(
+        pc=='PC4 - Religious perception on health'
+        ,'PC4 -  Religious perception on health'
+        ,pc)
+    ,pc=
+      ifelse(
+        pc=='PC18 - Unknown'
+        ,'PC18 -  Unknown'
+        ,pc)
+  ) %>%
+  mutate(
+    pc=
+      factor(
+        pc
+        ,c('PC5 - Health problems'
+           ,'PC4 -  Religious perception on health'
+           ,'PC37 - Religion'
+           ,'PC28 - Poor-health medication'
+           ,'PC27 - Employed before'
+           ,'PC26 - Employed before'
+           ,'PC21 - Family support on health'
+           ,'PC18 -  Unknown')
+      )
+  ) %>%
+  mutate(weight=ifelse(abs(weight)<0 & selected=='Not selected by DI-VNN',0,weight)) %>%
+  select(-source) %>%
+  mutate(model='DI-VNN')
+```
+
+```{r figure-2, fig.cap='Variable importance of PC-GBM and DI-VNN', echo=FALSE, fig.height=8.26772, fig.width=5.51181}
+vimp_spc_gbm %>%
+  mutate(seq=seq(nrow(.))) %>%
+  left_join(
+    set$divnn$visualization$pc %>%
+      select(predictor) %>%
+      separate(predictor,c('prefix','predictor'),sep=' - ') %>%
+      filter(!duplicated(.))
+    ,by='predictor'
+  ) %>%
+  arrange(seq) %>%
+  select(-seq) %>%
+  unite(predictor,prefix,predictor,sep=' - ') %>%
+  mutate(
+    selected=
+      ifelse(!str_detect(predictor,'NA'),'Selected by DI-VNN','Not selected by DI-VNN')
+    ,predictor=
+      ifelse(
+        !str_detect(predictor,'NA')
+        ,as.character(predictor)
+        ,str_remove_all(predictor,'NA - ')
+      )
+  ) %>%
+  mutate(weight=ifelse(abs(weight)<0 & selected=='Not selected by DI-VNN',0,weight)) %>%
+  rbind(vimp_divnn) %>%
+  mutate(
+    predictor=
+      ifelse(
+        str_detect(predictor,'\\.')
+        ,predictor
+        ,paste0(predictor,'.')
+      )
+  ) %>%
+  separate(predictor,c('key1','key2'),sep='\\.') %>%
+  mutate(
+    key1=case_when(
+      key1=='Age'~'Age (year)'
+      ,key1=='Comorbidity'~'Number of comorbidity'
+      ,key1=='Income'~'Income (IDR)'
+      ,key1=='Medication'~'Number of medication'
+      ,key1=='NumberOfChildren'~'Number of child'
+      ,key1=='VisitCHCTmsYears'~'Duration of routine visit in CHC (year)'
+      ,TRUE~key1
+    )
+  ) %>%
+  mutate(
+    key1=case_when(
+      key1=='EduLevel'~'Education'
+      ,key1=='EmployeBefore'~'Employed before'
+      ,key1=='EmployedNow'~'Employed now'
+      ,key1=='HealthCondition'~'Health condition'
+      ,key1=='HearingProblem'~'Hearing problem'
+      ,key1=='LivingStatus'~'Living status'
+      ,key1=='MaritalStatus'~'Marital status'
+      ,key1=='OralStatus'~'Oral status'
+      ,key1=='VisualProblem'~'Visual problem'
+      ,TRUE~key1
+    )
+  ) %>%
+  mutate(
+    key2=case_when(
+      key2=='highschool'~'high school'
+      ,key2=='verygood'~'very good'
+      ,key2=='verypoor'~'very poor'
+      ,key2=='livingalone'~'living alone'
+      ,key2=='livingwithfamilymemberswithoutspouse'~'living with family members but without spouse'
+      ,key2=='livingwithspouseonly'~'living with spouse only'
+      ,key2=='livingwithspouseotherfamilymembers'~'living with spouse and other family members'
+      ,key2=='separateddivorced'~'separated/divorced'
+      ,TRUE~key2
+    )
+  ) %>%
+  mutate(key2=ifelse(key2=='','',paste0(' (',key2,')'))) %>%
+  unite(predictor,key1,key2,sep='') %>%
+  mutate(model=factor(model,c('SPC-GBM','DI-VNN'))) %>%
+  mutate(
+    selected=case_when(
+      selected=='Not selected by DI-VNN'~'a'
+      ,selected=='Selected by DI-VNN'~'b'
+      ,TRUE~''
+    )
+  ) %>%
+  mutate(weight=abs(weight)) %>%
+  qplot(predictor,pc,fill=weight,data=.,geom='tile') +
+  facet_grid(selected~model,scales='free',space='free') +
+  coord_flip() +
+  scale_x_discrete('Predictor') +
+  scale_y_discrete('Principal component') +
+  scale_fill_gradient2(
+    'Weight'
+    ,low='white'#'#E64B35FF'
+    ,mid='black'
+    ,high='white'#'#00A087FF'
+    ,midpoint=0
+  ) +
+  theme(
+    text=element_text(family='Times New Roman',size=8)
+    # ,axis.title.x=element_text(angle=45,hjust=1.05,vjust=2.55)
+    ,axis.text.x=element_text(angle=45,hjust=1.05,vjust=1.05)
+    # ,axis.title.y=element_text(angle=45,hjust=6.95,vjust=0.95)
+    ,axis.text.y=element_text(angle=45,hjust=0.95,vjust=0.95)
+    # ,legend.title=element_text(angle=45,hjust=0.05,vjust=0.05)
+    # ,legend.text=element_text(angle=45,hjust=0.05,vjust=0.05)
+    ,legend.position='top'
+    ,strip.background.y=element_blank()
+    ,strip.text.y=
+      element_text(angle=0,face='bold',vjust=1,size=10,margin=margin(l=2.5))
+  )
+
+ggsave('fig2.tiff',width=140,height=210,units='mm',dpi=300)
+```
+
+While PCs in SPC-GBM are interpreted independently among them, those can be 
+interconnected in DI-VNN (Figure 3), including among the PCs and the predictors 
+of origin. Each ontology predicts the outcome in DI-VNN, contributing to 
+optimize the predictive performance. If we used the model architecture up to 
+each ontology for predicting the outcome, different areas under ROC (AUROCs) 
+are shown (Figure 3A). Top three highest AUROCs were those predicted up to 
+the root, ONT: 20, and ONT:22.
+
+Each ontology are visualized for the array difference between GDS-15 positives 
+and negatives. The average of multiplications of the weights and the features for 
+GDS-15 positives is subtracted by those for the negatives. This means positive 
+and negative results from this subtraction refer to GDS-15 positive and 
+negative prediction, respectively.
+
+In the root ontology array, subjects living alone (F6) with comorbidity (F5) 
+and multiple factors (PC18, unknown) tend to be predicted as GDS-15 positives. 
+Tracing through ONT:25 and ONT:22, the PC18 factors are closer to 
+separated/divorce marital status (F7). Health problems (PC5) in ONT:20 is also 
+closer to the religious perception on health (PC4) in the parent ontology, 
+which is ONT:24. Subjects with PC5 and PC4 tend to be predicted as GDS-15 
+negatives. Similar prediction may be also assigned to subjects with 
+family support (PC21) on poor health condition (F2), as shown by ONT:23. This 
+may be related to religion A (F1) in ONT:19 that is also connected to ONT:24 
+with PC21, F2, and F5 (comorbidity). The last feature in ONT:24 have opposite 
+tendency on the GDS-15 outcome with the same feature in the root ontology.
+
+```{r DI-VNN iteration, eval=FALSE, fig.height=7, fig.width=7, include=FALSE}
+set$divnn$modeling$metrics %>%
+  filter(
+    str_detect(node,'root|lr')
+    & str_detect(key,'loss|roc|lr')
+  ) %>%
+  mutate(
+    key=case_when(
+      key=='lr'~'LR'
+      ,key=='loss'~'Root loss'
+      ,key=='roc'~'Root AUROC'
+      ,TRUE~''
+    )
+    ,set=case_when(
+      set=='lr'~'Both'
+      ,set=='train'~'Train set'
+      ,set=='val'~'Test set'
+      ,TRUE~''
+    )
+  ) %>%
+  ggplot(aes(epoch,value,color=set)) +
+  geom_line(alpha=0.5,size=0.2) +
+  geom_smooth(method='loess',formula=y~x) +
+  geom_vline(
+    xintercept=
+      set$divnn$modeling$metrics %>%
+      filter(set=='lr') %>%
+      arrange(value) %>%
+      slice(1) %>%
+      pull(epoch)
+    ,lty=1
+  ) +
+  geom_vline(
+    xintercept=
+      set$divnn$modeling$metrics %>%
+      filter(set=='val' & node=='root' & key=='roc') %>%
+      arrange(desc(value)) %>%
+      slice(1) %>%
+      pull(epoch)
+    ,lty=2
+  ) +
+  geom_vline(
+    xintercept=
+      set$divnn$modeling$metrics %>%
+      filter(set=='val' & node=='root' & key=='loss') %>%
+      arrange(value) %>%
+      slice(1) %>%
+      pull(epoch)
+    ,lty=3
+  ) +
+  facet_grid(factor(key,c('LR','Root loss','Root AUROC'))~.,scale='free_y') +
+  scale_x_continuous(
+    'Epoch\n(min. LR [solid]; max. val-AUROC [dashed]; min. val-loss [dotted])'
+  ) +
+  scale_y_continuous('Metric Value (with LOESS smoothing)') +
+  scale_color_discrete('Metric') +
+  theme(strip.text.y=element_text(angle=0))
+```
+
+```{r Pruned DI-VNN iteration, eval=FALSE, fig.height=7, fig.width=7, include=FALSE}
+set$divnn$modeling2$metrics %>%
+  filter(
+    str_detect(node,'root|lr')
+    & str_detect(key,'loss|roc|lr')
+  ) %>%
+  mutate(
+    key=case_when(
+      key=='lr'~'LR'
+      ,key=='loss'~'Root loss'
+      ,key=='roc'~'Root AUROC'
+      ,TRUE~''
+    )
+    ,set=case_when(
+      set=='lr'~'Both'
+      ,set=='train'~'Train set'
+      ,set=='val'~'Test set'
+      ,TRUE~''
+    )
+  ) %>%
+  ggplot(aes(epoch,value,color=set)) +
+  geom_line(alpha=0.5,size=0.2) +
+  geom_smooth(method='loess',formula=y~x) +
+  geom_vline(
+    xintercept=
+      set$divnn$modeling2$metrics %>%
+      filter(set=='lr') %>%
+      arrange(value) %>%
+      slice(1) %>%
+      pull(epoch)
+    ,lty=1
+  ) +
+  geom_vline(
+    xintercept=
+      set$divnn$modeling2$metrics %>%
+      filter(set=='val' & node=='root' & key=='roc') %>%
+      arrange(desc(value)) %>%
+      slice(1) %>%
+      pull(epoch)
+    ,lty=2
+  ) +
+  geom_vline(
+    xintercept=
+      set$divnn$modeling2$metrics %>%
+      filter(set=='val' & node=='root' & key=='loss') %>%
+      arrange(value) %>%
+      slice(1) %>%
+      pull(epoch)
+    ,lty=3
+  ) +
+  facet_grid(factor(key,c('LR','Root loss','Root AUROC'))~.,scale='free_y') +
+  scale_x_continuous(
+    'Epoch\n(min. LR [solid]; max. val-AUROC [dashed]; min. val-loss [dotted])'
+  ) +
+  scale_y_continuous('Metric Value (with LOESS smoothing)') +
+  scale_color_discrete('Metric') +
+  theme(strip.text.y=element_text(angle=0))
+```
+
+```{r Build DI-VNN visualization, include=FALSE}
+if(FALSE){
+  set$divnn$viz.ontoarray=
+    set$divnn$output %>%
+    `notes<-`(
+      notes(set$divnn$output) %>%
+        lapply(X=seq(length(.)),Y=.,function(X,Y){
+          if(names(Y)[X]=='ontotype'){
+            set$divnn$visualization$ontoarray$recode
+          }else{
+            Y[[X]]
+          }
+        }) %>%
+        setNames(names(notes(set$divnn$output)))
+    ) %>%
+    viz.ontoarray(
+      set$divnn$modeling$ontonet
+      ,batch_size=8
+    )
+  saveRDS(set$divnn$viz.ontoarray,'data/divnn_visualization.rds')
+}else{
+  cat(readRDS('data/log.rds')[['divnn_visualization']])
+  set$divnn$viz.ontoarray=readRDS('data/divnn_visualization.rds')
+}
+
+if(FALSE){
+  set$divnn2$viz.ontoarray=
+    set$divnn$output2 %>%
+    `notes<-`(
+      notes(set$divnn$output2) %>%
+        lapply(X=seq(length(.)),Y=.,function(X,Y){
+          if(names(Y)[X]=='ontotype'){
+            set$divnn2$visualization$ontoarray$recode
+          }else{
+            Y[[X]]
+          }
+        }) %>%
+        setNames(names(notes(set$divnn$output2)))
+    ) %>%
+    viz.ontoarray(
+      set$divnn$modeling2$ontonet
+      ,batch_size=8
+    )
+  saveRDS(set$divnn2$viz.ontoarray,'data/divnn2_visualization.rds')
+}else{
+  # cat(readRDS('data/log.rds')[['divnn2_visualization']])
+  # set$divnn2$viz.ontoarray=readRDS('data/divnn2_visualization.rds')
+}
+```
+
+```{r Set DI-VNN ontonet visualization, include=FALSE}
+set$divnn$viz.ontonet=
+  set$divnn$output %>%
+  `notes<-`(
+    notes(set$divnn$output) %>%
+      lapply(X=seq(length(.)),Y=.,function(X,Y){
+        if(names(Y)[X]=='ontology'){
+          set$divnn$visualization$ontonet$recode %>% select(-label)
+        }else{
+          Y[[X]]
+        }
+      }) %>%
+      setNames(names(notes(set$divnn$output)))
+  ) %>%
+  viz.ontonet(
+    feature=F
+    ,eval.results=set$divnn$modeling$evaluation
+    ,eval.metric='roc'
+    ,eval.pal=c('#E64B35FF','#00A087FF')
+  )
+```
+
+```{r Save web DI-VNN visualization, eval=FALSE, include=FALSE}
+list(
+    ontonet=set$divnn$viz.ontonet
+    ,ontoarray=set$divnn$viz.ontoarray
+  ) %>%
+  saveRDS('data/web_divnn_visualization.rds')
+```
+
+```{r Create ontonet plot function, include=FALSE}
+plot.viz.ontonet = function(x
+                            ,node.size = 8
+                            ,edge.size = 15
+                            ,edge.gap=0.025
+                            ,label = F
+                            ,label.family = "sans"
+                            ,label.cex = 4) {
+  
+  data=
+    x$edge %>%
+    graph_from_data_frame(directed=T) %>%
+    ggnetwork(
+      layout=layout_as_tree(.,mode='in')
+      ,arrow.gap=edge.gap
+    ) %>%
+    left_join(rename(x$node,name=node),by='name')
+  
+  p=data %>%
+    ggplot(aes(x=x,y=y,xend=xend,yend=yend,fill=avg)) +
+    geom_edges(
+      arrow=arrow(length=unit(edge.size,'pt'),type='closed')
+      ,show.legend=F
+    ) +
+    geom_nodes(
+      aes(color=avg)
+      ,show.legend=F
+      ,size=node.size
+      ,na.rm=T
+    )
+  
+  if(label){
+    p=p +
+      geom_nodelabel(
+        aes(label=paste0(name,'\n',round(avg,3)))
+        ,family=label.family
+        ,size=unit(label.cex,'pt')
+        ,alpha=0.95
+        ,show.legend=F
+        ,na.rm=T
+      )
+  }
+  
+  xmin = min(data$x)-0.075*(max(data$x)-min(data$x))
+  xmax = max(data$x)+0.075*(max(data$x)-min(data$x))
+  ymin = min(data$y)-0*(max(data$y)-min(data$y))
+  ymax = max(data$y)+0*(max(data$y)-min(data$y))
+  
+  p +
+    scale_x_continuous(limits=c(xmin,xmax)) +
+    scale_y_continuous(limits=c(ymin,ymax)) +
+    scale_color_gradient(low='#E64B35FF',high='#00A087FF') +
+    scale_fill_gradient(low='#E64B35FF',high='#00A087FF') +
+    theme_blank()
+}
+```
+
+```{r Create ontoarray plot function, include=FALSE}
+plot.viz.ontoarray=function(x
+                            ,pal = c("red", "green")
+                            ,label = F, label.family = "sans"
+                            ,label.size = 3
+                            ,label.color = "white", grid_col = 3){
+  
+    p = x %>% lapply(X = names(.), Y = ., function(X, 
+        Y) {
+        ontoarray = Y[[X]]$output
+        ontoarray %>% lapply(X = seq(dim(.)[3]), Y = ., 
+          Z = X, FUN = function(X, Y, Z) {
+            Y[, , X] %>% matrix()
+          }) %>% do.call(rbind, .) %>% as.data.frame() %>% 
+          setNames("fill") %>% mutate(x = rep(1:dim(ontoarray)[1], 
+          dim(ontoarray)[2] * dim(ontoarray)[3]), y = rep(1:dim(ontoarray)[2], 
+          dim(ontoarray)[1]) %>% sort() %>% rep(dim(ontoarray)[3]), 
+          z = rep(1:dim(ontoarray)[3], dim(ontoarray)[1] * 
+            dim(ontoarray)[2]) %>% sort()) %>% left_join(Y[[X]]$ontotype, 
+          by = c("x", "y", "z")) %>% 
+          mutate(ontology = X)
+    }) %>% do.call(rbind, .) %>% mutate(z = paste0("z=", 
+        z))
+    if (!label) 
+        p = p %>% mutate(feature = NA)
+    max_range = p$fill %>% abs() %>% max(na.rm = T)
+    p %>% ggplot(aes(x = y, y = x, fill = fill)) + geom_tile() + 
+        geom_text(aes(label = feature,alpha=abs(fill)/max(abs(fill))), family = label.family, 
+          size=label.size, color = label.color, na.rm = T,show.legend = F) + 
+        facet_wrap(ontology ~ z, ncol = grid_col) + coord_equal() + 
+        scale_fill_gradientn("(-) < GDS-15 > (+)", 
+          colors = c(pal[1], "black", pal[2]), 
+          na.value = NA, limit = c(-max_range, max_range)) + 
+        theme_void() + 
+        theme(
+          strip.text=element_text(family=label.family,size=label.size*3)
+          ,legend.title=element_text(family=label.family,size=label.size*3)
+          ,legend.text=element_text(family=label.family,size=label.size*3)
+          ,legend.position = "bottom"
+        ) + 
+        guides(fill = guide_colorbar(title.position = "top", 
+          title.hjust = 0.5))
+}
+```
+
+```{r figure-3, fig.cap='DI-VNN ontology network and array', echo=FALSE, fig.height=3.93701, fig.width=5.51181}
+ontonet=
+  set$divnn$viz.ontonet %>%
+  plot.viz.ontonet(
+    node.size=1
+    ,edge.size=4
+    ,edge.gap=0.07
+    ,label=T
+    ,label.family='serif'
+    ,label.cex=2
+  )
+
+ontoarray=
+  set$divnn$viz.ontoarray %>%
+  plot.viz.ontoarray(
+    pal=c('#E64B35FF','#00A087FF')
+    ,label=T
+    ,label.family='serif'
+    ,label.size=2
+    ,grid_col=3
+  )
+
+ggarrange(
+    ontonet
+    ,ontoarray
+    ,ncol=2,nrow=1
+    ,labels=c('a','b')
+    ,widths=c(3.5,3.5)
+    ,heights=5
+    ,font.label=list(family='Times New Roman',size=10)
+  )
+
+ggsave('fig3.tiff',width=140,height=100,units='mm',dpi=300)
+```
+
+```{r figure-4, fig.cap='Variable importance of DI-VNN', echo=FALSE, fig.height=12, fig.width=6.5}
+# set$divnn$visualization$pc %>%
+#   mutate(
+#     selected=
+#       ifelse(!str_detect(predictor,'NA'),'Selected','Not selected')
+#     ,predictor=
+#       ifelse(
+#         !str_detect(predictor,'NA')
+#         ,as.character(predictor)
+#         ,str_remove_all(predictor,'NA - ')
+#       )
+#   ) %>%
+#   mutate(weight=ifelse(abs(weight)<0 & selected=='Not selected',0,weight)) %>%
+#   mutate(
+#     predictor=
+#       ifelse(
+#         str_detect(predictor,'\\.')
+#         ,predictor
+#         ,paste0(predictor,'.')
+#       )
+#   ) %>%
+#   separate(predictor,c('key1','key2'),sep='\\.') %>%
+#   mutate(
+#     key1=case_when(
+#       key1=='Age'~'Age (year)'
+#       ,key1=='Comorbidity'~'Number of comorbidity'
+#       ,key1=='Income'~'Income (IDR)'
+#       ,key1=='Medication'~'Number of medication'
+#       ,key1=='NumberOfChildren'~'Number of child'
+#       ,key1=='VisitCHCTmsYears'~'Duration of routine visit in CHC (year)'
+#       ,TRUE~key1
+#     )
+#   ) %>%
+#   mutate(
+#     key1=case_when(
+#       key1=='EduLevel'~'Education'
+#       ,key1=='EmployeBefore'~'Employed before'
+#       ,key1=='EmployedNow'~'Employed now'
+#       ,key1=='HealthCondition'~'Health condition'
+#       ,key1=='HearingProblem'~'Hearing problem'
+#       ,key1=='LivingStatus'~'Living status'
+#       ,key1=='MaritalStatus'~'Marital status'
+#       ,key1=='OralStatus'~'Oral status'
+#       ,key1=='VisualProblem'~'Visual problem'
+#       ,TRUE~key1
+#     )
+#   ) %>%
+#   mutate(
+#     key2=case_when(
+#       key2=='highschool'~'high school'
+#       ,key2=='verygood'~'very good'
+#       ,key2=='verypoor'~'very poor'
+#       ,key2=='livingalone'~'living alone'
+#       ,key2=='livingwithfamilymemberswithoutspouse'~'living with family members but without spouse'
+#       ,key2=='livingwithspouseonly'~'living with spouse only'
+#       ,key2=='livingwithspouseotherfamilymembers'~'living with spouse and other family members'
+#       ,key2=='separateddivorced'~'separated/divorced'
+#       ,TRUE~key2
+#     )
+#   ) %>%
+#   mutate(key2=ifelse(key2=='','',paste0(' (',key2,')'))) %>%
+#   unite(predictor,key1,key2,sep='') %>%
+#   qplot(predictor,pc,fill=weight,data=.,geom='tile') +
+#   facet_grid(selected~.,scales='free_y',space='free_y') +
+#   coord_flip() +
+#   scale_x_discrete('Predictor') +
+#   scale_y_discrete('Principal component') +
+#   scale_fill_gradient2(
+#     low='white'#'#E64B35FF'
+#     ,mid='black'
+#     ,high='white'#'#00A087FF'
+#     ,midpoint=0
+#   ) +
+#   theme(
+#     axis.title.x=element_text(angle=45,hjust=1.25,vjust=2.55)
+#     ,axis.text.x=element_text(angle=45,hjust=1.05,vjust=1.05)
+#     ,axis.title.y=element_text(angle=45,hjust=6.95,vjust=0.95)
+#     ,axis.text.y=element_text(angle=45,hjust=0.95,vjust=0.95)
+#     ,legend.title=element_text(angle=45,hjust=0.05,vjust=0.05)
+#     ,legend.text=element_text(angle=45,hjust=0.05,vjust=0.05)
+#     ,strip.text.y=element_text(angle=90)
+#   )
+```
+
+```{r Set pruned DI-VNN ontonet visualization, include=FALSE}
+# set$divnn2$viz.ontonet=
+#   set$divnn$output2 %>%
+#   `notes<-`(
+#     notes(set$divnn$output2) %>%
+#       lapply(X=seq(length(.)),Y=.,function(X,Y){
+#         if(names(Y)[X]=='ontology'){
+#           set$divnn2$visualization$ontonet$recode %>% select(-label)
+#         }else{
+#           Y[[X]]
+#         }
+#       }) %>%
+#       setNames(names(notes(set$divnn$output2)))
+#   ) %>%
+#   viz.ontonet(
+#     feature=F
+#     ,eval.results=set$divnn$modeling2$evaluation
+#     ,eval.metric='roc'
+#     ,eval.pal=c('#E64B35FF','#00A087FF')
+#   )
+```
+
+```{r Visualize pruned DI-VNN ontonet, echo=FALSE, fig.height=7, fig.width=10}
+# set$divnn2$viz.ontonet %>%
+#   plot.viz.ontonet(
+#     node.shape='square'
+#     ,node.size=20
+#     ,label=T
+#     ,label.family='serif'
+#     ,label.cex=1.25
+#     ,asp=0
+#     ,ylim=c(-1,1)
+#     ,xlim=c(-1,1)
+#   )
+```
+
+```{r Visualize pruned DI-VNN ontoarray, echo=FALSE}
+# set$divnn2$viz.ontoarray %>%
+#   plot.viz.ontoarray(
+#     pal=c('#E64B35FF','#00A087FF')
+#     ,label=T
+#     ,label.family='serif'
+#     ,label.size=3
+#     ,grid_col=5
+#   )
+```
+
+```{r Visualize PC sorted by pruned DI-VNN, echo=FALSE, fig.height=12, fig.width=6}
+# set$divnn2$visualization$pc %>%
+#   mutate(
+#     selected=
+#       ifelse(!str_detect(predictor,'NA'),'Selected','Not selected')
+#     ,predictor=
+#       ifelse(
+#         !str_detect(predictor,'NA')
+#         ,as.character(predictor)
+#         ,str_remove_all(predictor,'NA - ')
+#       )
+#   ) %>%
+#   mutate(weight=ifelse(abs(weight)<0 & selected=='Not selected',0,weight)) %>%
+#   qplot(predictor,pc,fill=weight,data=.,geom='tile') +
+#   facet_grid(selected~.,scales='free_y',space='free_y') +
+#   coord_flip() +
+#   scale_x_discrete('Predictor') +
+#   scale_y_discrete('Principal component') +
+#   scale_fill_gradient2(
+#     low='#E64B35FF'
+#     ,mid='black'
+#     ,high='#00A087FF'
+#     ,midpoint=0
+#   ) +
+#   theme(
+#     axis.title.x=element_text(angle=45,hjust=-2.55,vjust=-1.45)
+#     ,axis.text.x=element_text(angle=45,hjust=1.05,vjust=1.05)
+#     ,axis.title.y=element_text(angle=45,hjust=6.95,vjust=0.95)
+#     ,axis.text.y=element_text(angle=45,hjust=0.95,vjust=0.95)
+#     ,legend.title=element_text(angle=45,hjust=0.05,vjust=0.05)
+#     ,legend.text=element_text(angle=45,hjust=0.05,vjust=0.05)
+#     ,strip.text.y=element_text(angle=90)
+#   )
+```
