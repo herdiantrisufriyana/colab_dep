@@ -5,24 +5,33 @@ Emily Chia-Yu Su c,e,f,\*, PhD; Yeu-Hui Chuang a,g, \*, PhD
 
 a School of Nursing, College of Nursing, Taipei Medical University, 250 Wu-Xing 
 Street, Taipei 11031, Taiwan.
+
 b Nursing Study Program, Faculty of Medicine, Universitas Halu Oleo, HEA. 
 Mokodompit Street, Tridharma Green Campus Anduonohu, Kendari 93132, Southeast 
 Sulawesi, Indonesia.
+
 c Graduate Institute of Biomedical Informatics, College of Medical Science and 
 Technology, Taipei Medical University, 250 Wu-Xing Street, Taipei 11031, Taiwan.
+
 d Department of Medical Physiology, Faculty of Medicine, Universitas Nahdlatul 
 Ulama Surabaya, 57 Raya Jemursari Street, Surabaya 60237, Indonesia.
+
 e Clinical Big Data Research Center, Taipei Medical University Hospital, 250 
 Wu-Xing Street, Taipei 11031, Taiwan.
+
 f Research Center for Artificial Intelligence in Medicine, Taipei Medical 
 University, 250 Wu-Xing Street, Taipei 11031, Taiwan.
+
 g Center for Nursing and Healthcare Research in Clinical Practice Application, 
 Wan Fang Hospital, Taipei Medical University, 111 Section 3, Xing-Long Road, 
 Taipei 11698, Taiwan.
-* Corresponding author at:
+
+\* Corresponding author at:
+
 School of Nursing, College of Nursing, Taipei Medical University, 250 Wu-Xing 
 Street, Taipei 11031, Taiwan. Phone: +886-2-27361661 ext. 6339. Email: 
 yeuhui@tmu.edu.tw (Y.H.C).
+
 Clinical Big Data Research Center, Taipei Medical University Hospital, 250 
 Wu-Xing Street, Taipei 11031, Taiwan. Phone: +886-2-66382736 ext. 1515. Email: 
 emilysu@tmu.edu.tw (E.C.Y.S).
