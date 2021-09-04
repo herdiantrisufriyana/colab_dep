@@ -58,7 +58,7 @@ All codes require ~15 minutes to complete for non-expensive computation. We
 provided pre-existing files to substitute the expensive computation. One can 
 set a variable that defines whether the expensive parts will be conducted. This 
 may take hours to complete. (We embargo the dataset for a year from the 
-publication date; thus, the pre-existing files will also be share after 
+publication date; thus, the pre-existing files will also be shared after 
 embargo period is over.)
 
 
