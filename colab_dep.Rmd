@@ -3697,8 +3697,8 @@ rbind(
   ) %>%
   mutate(
     set=case_when(
-      set=='1. Without re-calibration'~'a'
-      ,set=='2. With re-calibration'~'b'
+      set=='1. Without re-calibration'~'A'
+      ,set=='2. With re-calibration'~'B'
       ,TRUE~''
     )
   ) %>%
@@ -3710,34 +3710,34 @@ rbind(
       calib_int_slo %>%
       mutate(
         set=case_when(
-          set=='1. Without re-calibration'~'a'
-          ,set=='2. With re-calibration'~'b'
+          set=='1. Without re-calibration'~'A'
+          ,set=='2. With re-calibration'~'B'
           ,TRUE~''
         )
       )
     ,x=0.5,y=-0.2,size=3
     ,aes(label=intercept)
-    ,family='Times New Roman'
+    ,family='sans'
   ) +
   geom_text(
     data=
       calib_int_slo %>%
       mutate(
         set=case_when(
-          set=='1. Without re-calibration'~'a'
-          ,set=='2. With re-calibration'~'b'
+          set=='1. Without re-calibration'~'A'
+          ,set=='2. With re-calibration'~'B'
           ,TRUE~''
         )
       )
     ,x=0.5,y=-0.35,size=3
     ,aes(label=slope)
-    ,family='Times New Roman'
+    ,family='sans'
   ) +
   facet_grid(set~model) +
   scale_x_continuous('Predicted probability',limits=c(0,1)) +
   scale_y_continuous('True probability',limits=c(-0.4,1),breaks=seq(0,1,0.25)) +
   theme(
-    text=element_text(family='Times New Roman',size=8)
+    text=element_text(family='sans',size=8)
     ,axis.text.x=element_text(angle=90,vjust=0.5,hjust=1)
     ,strip.background.y=element_blank()
     ,strip.placement='outside'
@@ -4477,26 +4477,58 @@ vimp_spc_gbm %>%
   mutate(model=factor(model,c('SPC-GBM','DI-VNN'))) %>%
   mutate(
     selected=case_when(
-      selected=='Not selected by DI-VNN'~'a'
-      ,selected=='Selected by DI-VNN'~'b'
+      selected=='Not selected by DI-VNN'~'A'
+      ,selected=='Selected by DI-VNN'~'B'
       ,TRUE~''
     )
   ) %>%
-  mutate(weight=abs(weight)) %>%
+  mutate(
+    weight=abs(weight)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    weight=
+      case_when(
+        weight<(floor((min(weight)+1*(max(weight)-min(weight))/4)*100)/100)
+        ~paste0('<',(floor((min(weight)+1*(max(weight)-min(weight))/4)*100)/100))
+        ,weight>=(floor((min(weight)+(max(weight)-min(weight))/4)*100)/100)
+         & weight<(floor((min(weight)+2*(max(weight)-min(weight))/4)*100)/100)
+         ~paste0(
+           (floor((min(weight)+1*(max(weight)-min(weight))/4)*100)/100)
+           ,' to '
+           ,'<',(floor((min(weight)+2*(max(weight)-min(weight))/4)*100)/100)
+          )
+        ,weight>=(floor((min(weight)+2*(max(weight)-min(weight))/4)*100)/100)
+         & weight<=(floor((min(weight)+3*(max(weight)-min(weight))/4)*100)/100)
+         ~paste0(
+           (floor((min(weight)+2*(max(weight)-min(weight))/4)*100)/100)
+           ,' to '
+           ,(floor((min(weight)+3*(max(weight)-min(weight))/4)*100)/100)
+          )
+        ,TRUE
+         ~paste0('>',(floor((min(weight)+3*(max(weight)-min(weight))/4)*100)/100))
+      )
+  ) %>%
+  mutate(
+    weight=
+      weight %>%
+      factor(c('<0.07','0.07 to <0.15','0.15 to 0.23','>0.23'))
+  ) %>%
   qplot(predictor,pc,fill=weight,data=.,geom='tile') +
   facet_grid(selected~model,scales='free',space='free') +
   coord_flip() +
   scale_x_discrete('Predictor') +
   scale_y_discrete('Principal component') +
-  scale_fill_gradient2(
-    'Weight'
-    ,low='white'#'#E64B35FF'
-    ,mid='black'
-    ,high='white'#'#00A087FF'
-    ,midpoint=0
-  ) +
+  # scale_fill_gradient2(
+  #   'Weight'
+  #   ,low='white'#'#E64B35FF'
+  #   ,mid='black'
+  #   ,high='white'#'#00A087FF'
+  #   ,midpoint=0
+  # ) +
+  scale_fill_manual('Weight',values=c('grey10','grey33','grey57','grey80'))+
   theme(
-    text=element_text(family='Times New Roman',size=8)
+    text=element_text(family='sans',size=8)
     # ,axis.title.x=element_text(angle=45,hjust=1.05,vjust=2.55)
     ,axis.text.x=element_text(angle=45,hjust=1.05,vjust=1.05)
     # ,axis.title.y=element_text(angle=45,hjust=6.95,vjust=0.95)
@@ -4509,7 +4541,7 @@ vimp_spc_gbm %>%
       element_text(angle=0,face='bold',vjust=1,size=10,margin=margin(l=2.5))
   )
 
-ggsave('fig2.tiff',width=140,height=210,units='mm',dpi=300)
+ggsave('fig2.tiff',width=140,height=210,units='mm',dpi=500)
 ```
 
 While PCs in SPC-GBM are interpreted independently among them, those can be 
@@ -4724,7 +4756,7 @@ set$divnn$viz.ontonet=
     feature=F
     ,eval.results=set$divnn$modeling$evaluation
     ,eval.metric='roc'
-    ,eval.pal=c('#E64B35FF','#00A087FF')
+    ,eval.pal=c('#E64B35FF','#4DBBD5FF')#'#00A087FF'
   )
 ```
 
@@ -4787,8 +4819,8 @@ plot.viz.ontonet = function(x
   p +
     scale_x_continuous(limits=c(xmin,xmax)) +
     scale_y_continuous(limits=c(ymin,ymax)) +
-    scale_color_gradient(low='#E64B35FF',high='#00A087FF') +
-    scale_fill_gradient(low='#E64B35FF',high='#00A087FF') +
+    scale_color_gradient(low='#E64B35FF',high='#4DBBD5FF') + #'#00A087FF'
+    scale_fill_gradient(low='#E64B35FF',high='#4DBBD5FF') + #'#00A087FF'
     theme_blank()
 }
 ```
@@ -4846,17 +4878,17 @@ ontonet=
     ,edge.size=4
     ,edge.gap=0.07
     ,label=T
-    ,label.family='serif'
+    ,label.family='sans'
     ,label.cex=2
   )
 
 ontoarray=
   set$divnn$viz.ontoarray %>%
   plot.viz.ontoarray(
-    pal=c('#E64B35FF','#00A087FF')
+    pal=c('#E64B35FF','#4DBBD5FF') #'#00A087FF'
     ,label=T
-    ,label.family='serif'
-    ,label.size=2
+    ,label.family='sans'
+    ,label.size=1.5
     ,grid_col=3
   )
 
@@ -4864,10 +4896,10 @@ ggarrange(
     ontonet
     ,ontoarray
     ,ncol=2,nrow=1
-    ,labels=c('a','b')
+    ,labels=c('A','B')
     ,widths=c(3.5,3.5)
     ,heights=5
-    ,font.label=list(family='Times New Roman',size=10)
+    ,font.label=list(family='sans',size=10)
   )
 
 ggsave('fig3.tiff',width=140,height=100,units='mm',dpi=300)
