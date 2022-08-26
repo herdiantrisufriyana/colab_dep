@@ -1,7 +1,7 @@
 # Questionnaire-free machine-learning method to predict depressive symptoms among community-dwelling older adults
 
 Sri Susanty a,b, RN, PhD; Herdiantri Sufriyana c,d, MD, PhD; 
-Emily Chia-Yu Su c,e,f,\*, PhD; Yeu-Hui Chuang a,g, \*, PhD
+Emily Chia-Yu Su c,e,f,\*, PhD; Yeu-Hui Chuang a,g, \*, RN, PhD
 
 a School of Nursing, College of Nursing, Taipei Medical University, 250 Wu-Xing 
 Street, Taipei 11031, Taiwan.
