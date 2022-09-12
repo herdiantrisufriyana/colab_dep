@@ -2,7 +2,7 @@
 title: 'Questionnaire-free machine-learning method to predict depressive 
         symptoms among community-dwelling older adults'
 author:
-  - name: Sri Susanty, MS
+  - name: Sri Susanty, RN, PhD
     affiliation:
     - &nursing School of Nursing, College of Nursing, Taipei Medical 
       University, 250 Wu-Xing Street, Taipei 11031, Taiwan.
@@ -10,7 +10,7 @@ author:
       Mokodompit Street, Tridharma Green Campus Anduonohu, Kendari 93132, 
       Southeast Sulawesi, Indonesia.
     email: srisusantysahir@gmail.com
-  - name: Herdiantri Sufriyana, MD, M.Sc
+  - name: Herdiantri Sufriyana, MD, PhD
     affiliation:
     - &gibi Graduate Institute of Biomedical Informatics, College of Medical 
       Science and Technology, Taipei Medical University, 250 Wu-Xing Street, 
@@ -3744,7 +3744,7 @@ rbind(
     ,strip.text.y=element_text(margin=margin(),angle=0,face='bold',vjust=1,size=10)
   )
 
-ggsave('fig1.tiff',width=190,height=95,units='mm',dpi=1000)
+ggsave('fig1.tiff',width=179,height=179/190*95,units='mm',dpi=1000)
 ```
 
 We only used training set to determine the best between two well-calibrated 
@@ -4541,7 +4541,7 @@ vimp_spc_gbm %>%
       element_text(angle=0,face='bold',vjust=1,size=10,margin=margin(l=2.5))
   )
 
-ggsave('fig2.tiff',width=140,height=210,units='mm',dpi=500)
+ggsave('fig2.tiff',width=179,height=179/140*210,units='mm',dpi=500)
 ```
 
 While PCs in SPC-GBM are interpreted independently among them, those can be 
@@ -4902,7 +4902,7 @@ ggarrange(
     ,font.label=list(family='sans',size=10)
   )
 
-ggsave('fig3.tiff',width=140,height=100,units='mm',dpi=300)
+ggsave('fig3.tiff',width=179,height=179/140*100,units='mm',dpi=300)
 ```
 
 ```{r figure-4, fig.cap='Variable importance of DI-VNN', echo=FALSE, fig.height=12, fig.width=6.5}
